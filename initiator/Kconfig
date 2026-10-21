@@ -6,4 +6,32 @@
 
 source "$(APPLICATION_SOURCE_DIR)/../common/Kconfig"
 
+menu "Mars Channel Sounding initiator options"
+
+config MARS_CS_PROCEDURE_INTERVAL
+	int "Channel Sounding procedure interval (connection events)"
+	default 10
+	range 1 65535
+	depends on BT_CHANNEL_SOUNDING
+	help
+	  Minimum and maximum interval between consecutive Channel Sounding
+	  procedures, in connection events, for the initiator. Both the
+	  minimum and the maximum procedure interval are set to this value,
+	  so the controller schedules one procedure every interval
+	  connection events.
+
+	  The default of 10 matches the Nordic ras_initiator sample and the
+	  firmware's released cadence, so default builds are unchanged.
+
+	  Set this to 1 to build the high-cadence variant used by the bench's
+	  transport-headroom run. That requests a procedure at every
+	  connection event; the controller applies its own minimum (the
+	  Nordic SDC on the nRF54LM20-DK reports 2), which still tightens the
+	  cadence about fivefold against the default. The tightened cadence
+	  makes the COBS transport, not the procedure scheduler, the limiting
+	  factor. This is a build-time bench lever; there is no runtime
+	  control.
+
+endmenu
+
 source "Kconfig.zephyr"
