@@ -11,19 +11,20 @@ API.
 
 ## Board support contract
 
-**No boards are supported yet.** The firmware sources are board-agnostic; the
-first development board adds the first overlay and presets. A board support
-change consists of:
+**Supported board: nRF54LM20-DK** (`nrf54lm20dk/nrf54lm20a/cpuapp`). The
+firmware sources stay board-agnostic; a board support change consists of:
 
 1. **A devicetree overlay** in `boards/`, named
    `<board>_nrf54lm20a_cpuapp.overlay` (and/or `..._nrf54lm20b_cpuapp.overlay`).
    It provides:
    - `chosen { cobs-uart = &uartXX; }` — the initiator's COBS ranging stream,
-     run at `921600` baud, 8N1, no flow control.
-   - The console chosen nodes when the board has a console UART:
-     `zephyr,console`, `zephyr,shell-uart`, `zephyr,uart-mcumgr`,
-     `zephyr,bt-mon-uart`, and `zephyr,bt-c2h-uart`. Boards without a console
-     UART select the RTT console in a board `.conf` fragment instead.
+     run at the board-declared baud (`921600` where the transport supports it,
+     `1,000,000` on the nRF54LM20-DK VCOM), 8N1, no flow control.
+   - The console chosen nodes when the board has a console UART that its board
+     definition does not already choose: `zephyr,console`, `zephyr,shell-uart`,
+     `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, and `zephyr,bt-c2h-uart`.
+     Boards without a console UART select the RTT console in a board `.conf`
+     fragment instead.
    - An optional `cs_antenna_switch` node for multi-antenna boards (see
      [Antenna-switch node](#antenna-switch-node)).
    - An optional RF-switch supply rail when the board's RF switch needs a
@@ -74,6 +75,7 @@ needed). Each local fragment is three lines setting the same three symbols:
 
 | Fragment | `RAS_MAX_ANTENNA_PATHS` | `SDC_CS_MAX_ANTENNA_PATHS` | `SDC_CS_NUM_ANTENNAS` | Antennas / Paths |
 |----------|------------------------|----------------------------|------------------------|------------------|
+| `1_path_1_local.conf` | 1 | 1 | 1 | A1 / 1-path |
 | `2_path_1_local.conf` | 2 | 2 | 1 | A1 / 2-path |
 | `2_path_2_local.conf` | 2 | 2 | 2 | A2 / 2-path |
 | `4_path_1_local.conf` | 4 | 4 | 1 | A1 / 4-path |
@@ -97,13 +99,15 @@ Applied via `EXTRA_CONF_FILE` after `CONF_FILE`, they override the RAS defaults:
 
 ### Presets
 
-No presets are defined yet. The first board support change adds them to
-`initiator/CMakePresets.json` and `reflector/CMakePresets.json` and fills this
-table with one row per preset:
+The nRF54LM20-DK presets live in `initiator/CMakePresets.json` and
+`reflector/CMakePresets.json`:
 
 | Preset | Mode | Role | Board | Overlay | `EXTRA_CONF_FILE` | Antennas / Paths |
 |--------|------|------|-------|---------|-------------------|------------------|
-| _(none yet)_ | — | — | — | — | — | — |
+| `nrf54lm20dk_cent_a1_1` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_cent_a1_1_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_peri_a1_1` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_peri_a1_1_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
 
 Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
 suffix for IPT. Note the deliberate naming asymmetry:
@@ -159,6 +163,7 @@ opposite index slots. For the fragment combinations this repo expresses:
 
 | Antennas / Paths | Initiator `An_Bm` | Reflector `An_Bm` |
 |------------------|-------------------|--------------------|
+| A1 / 1           | `A1_B1`           | `A1_B1`            |
 | A1 / 2           | `A1_B2`           | —                  |
 | A2 / 2           | —                 | `A1_B2`            |
 | A1 / 4           | `A1_B4`           | `A4_B1`            |

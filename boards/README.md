@@ -1,6 +1,6 @@
 # Board support
 
-No boards are supported yet. This file documents the contract the first board
+The nRF54LM20-DK is supported. This file documents the contract every board
 support change follows, so the shared firmware and CI stay board-agnostic.
 
 ## What a board support change adds
@@ -9,11 +9,13 @@ support change follows, so the shared firmware and CI stay board-agnostic.
    `boards/<board>_nrf54lm20a_cpuapp.overlay` (and/or
    `..._nrf54lm20b_cpuapp.overlay`). It must provide:
    - `chosen { cobs-uart = &uartXX; }` — the initiator's COBS ranging stream.
-     Set that UART to `921600` baud, 8N1, no flow control.
+     Set that UART to the board-declared baud (`921600` where the transport
+     supports it, `1,000,000` on the nRF54LM20-DK VCOM), 8N1, no flow control.
    - The console chosen nodes (`zephyr,console`, `zephyr,shell-uart`,
      `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`) when the
-     board has a console UART. Boards without one select the RTT console in a
-     board `.conf` fragment instead.
+     board has a console UART that its board definition does not already
+     choose. Boards without one select the RTT console in a board `.conf`
+     fragment instead.
    - An optional `cs_antenna_switch` node for multi-antenna boards:
      ```dts
      cs_antenna_switch: cs-antenna-config {
@@ -51,8 +53,8 @@ support change follows, so the shared firmware and CI stay board-agnostic.
      board definition when one exists.
    - `CONF_FILE` — `prj.conf`.
    - `EXTRA_CONF_FILE` — the role fragment (`initiator/central.overlay` for
-     initiators), the path-local fragment from `boards/`, IPT fragments for
-     `_ipt` presets, and any board `.conf`.
+     initiators), the IPT fragments for `_ipt` presets, the path-local fragment
+     from `boards/`, and any board `.conf`.
    - `DTC_OVERLAY_FILE` — the board overlay.
    - `binaryDir` — `${sourceDir}/build_<preset>`.
 
@@ -68,6 +70,7 @@ support change follows, so the shared firmware and CI stay board-agnostic.
 
 | Fragment | Purpose |
 |----------|---------|
+| `1_path_1_local.conf` | 1 antenna path, 1 antenna |
 | `2_path_1_local.conf`, `2_path_2_local.conf` | 2 antenna paths, 1 or 2 antennas |
 | `4_path_1_local.conf` … `4_path_4_local.conf` | 4 antenna paths, 1–4 antennas |
 | `inline_pct_initiator.conf` | IPT mode for the initiator (drops RAS/GATT) |
