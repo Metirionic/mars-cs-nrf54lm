@@ -11,6 +11,7 @@
 #include "cs_initiator.h"
 
 #include <bluetooth/scan.h>
+#include <string.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/cs.h>
 #include <zephyr/bluetooth/gatt.h>
@@ -36,16 +37,29 @@ static K_SEM_DEFINE(sem_cs_security_enabled, 0, 1);
 static K_SEM_DEFINE(sem_connected, 0, 1);
 static K_SEM_DEFINE(sem_security, 0, 1);
 static K_SEM_DEFINE(sem_local_steps, 1, 1);
-#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
-/** @brief IPT event handoff (#173): 1 = the event pair below is free for the
- * RX thread to populate; 0 = the main loop owns it (serializing). */
+/** @brief RX-thread → consumer-thread event handoff (#173): 1 = the event pair
+ * below is free for the RX thread; 0 = the consumer thread owns it
+ * (serializing). Used by RAS and IPT alike. */
 static K_SEM_DEFINE(sem_event_free, 1, 1);
 /** @brief Completed procedures dropped because the serialize consumer was busy. */
 static uint32_t g_event_backlog_drops;
-/** @brief Static event pair handed from the RX thread to the main loop. */
+/** @brief Static event pair handed from the RX thread to the consumer thread. */
 static SubeventResultEvent_t g_local_event;
 static SubeventResultEvent_t g_peer_event;
-#endif
+/** @brief True while a published event pair is waiting for the consumer. */
+static bool g_event_pending;
+/** @brief Depth of the RX-thread → consumer diagnostic queue. */
+#define HANDOFF_LOG_DEPTH 4U
+/** @brief Fault-path diagnostics queued for the consumer thread.
+ *
+ * A dedicated queue rather than the event slot: a queued diagnostic must not
+ * make the next completed procedure fail the event claim, and a busy consumer
+ * must not silently lose the diagnostics that explain a stall. Overflow is
+ * bounded and counted.
+ */
+K_MSGQ_DEFINE(g_log_msgq, CS_INITIATOR_LOG_MESSAGE_MAX_LEN, HANDOFF_LOG_DEPTH, 4);
+/** @brief Diagnostics dropped because the queue was full. */
+static uint32_t g_diagnostic_drops;
 #if IS_ENABLED(CONFIG_BT_RAS_RREQ)
 static K_SEM_DEFINE(sem_discovery_done, 0, 1);
 static K_SEM_DEFINE(sem_mtu_exchange_done, 0, 1);
@@ -68,6 +82,7 @@ static cs_initiator_ranging_data_cb       gp_ranging_data_cb;
 static cs_initiator_ranging_data_ready_cb gp_ranging_data_ready_cb;
 static cs_initiator_config_created_cb     gp_config_created_cb;
 static cs_initiator_process_subevent_cb   gp_process_subevent_cb;
+static cs_initiator_process_log_cb        gp_process_log_cb;
 
 /* Dynamic timing constants (see cs_initiator_start): the step duration is
  * computed from the negotiated config timings (the SDC reports the minimums
@@ -161,47 +176,116 @@ void cs_initiator_give_sem_local_steps(void)
     k_sem_give(&sem_local_steps);
 }
 
-/** @brief Give the sem_data_ready semaphore (signal that ranging data is ready for processing). */
-void cs_initiator_give_sem_data_ready(void)
+/** @brief Count a dropped item and decide whether this drop should be logged.
+ *
+ * The first drop and every 128th after it are reported; the rest are counted
+ * only, so a stalled transport cannot flood the console.
+ *
+ * @param p_drops  Drop counter to increment.
+ * @return true when this drop should be logged, false otherwise.
+ */
+static bool should_report_drop(uint32_t * p_drops)
 {
+    (*p_drops)++;
+
+    return *p_drops == 1U || (*p_drops % 128U) == 0U;
+}
+
+/** @brief Count and report a procedure dropped at the handoff gate. */
+static void report_backlog_drop(void)
+{
+    if (should_report_drop(&g_event_backlog_drops))
+    {
+        LOG_WRN("Serialize backlog: dropped %u procedures (transport slower than cadence)", g_event_backlog_drops);
+    }
+}
+
+bool cs_initiator_claim_event_pair(SubeventResultEvent_t ** pp_local_event, SubeventResultEvent_t ** pp_peer_event)
+{
+    if (k_sem_take(&sem_event_free, K_NO_WAIT) < 0)
+    {
+        /* Consumer still serializing the previous item: drop this procedure.
+         * This is the #173 backpressure valve — the RX thread must never
+         * block on the wire. */
+        report_backlog_drop();
+        return false;
+    }
+
+    *pp_local_event = &g_local_event;
+    *pp_peer_event  = &g_peer_event;
+
+    return true;
+}
+
+void cs_initiator_publish_event_pair(void)
+{
+    g_event_pending = true;
     k_sem_give(&sem_data_ready);
 }
 
-/** @brief Wait on the sem_data_ready semaphore (blocks until ranging data is available). */
-void cs_initiator_take_sem_data_ready(void)
+void cs_initiator_queue_log_message(const char * p_message)
 {
-    k_sem_take(&sem_data_ready, K_FOREVER);
+    char   msg[CS_INITIATOR_LOG_MESSAGE_MAX_LEN];
+    size_t len = MIN(strlen(p_message), sizeof(msg) - 1U);
+
+    memcpy(msg, p_message, len);
+    msg[len] = '\0';
+
+    if (k_msgq_put(&g_log_msgq, msg, K_NO_WAIT) != 0)
+    {
+        if (should_report_drop(&g_diagnostic_drops))
+        {
+            LOG_WRN("Diagnostic backlog: dropped %u COBS log frames (transport slower than cadence)",
+                    g_diagnostic_drops);
+        }
+        return;
+    }
+
+    k_sem_give(&sem_data_ready);
 }
 
-#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
-/** @brief Consume the pending IPT event pair on the caller's thread.
+/** @brief Consume the pending handoff item on the caller's thread.
  *
- * Blocks until the RX thread has populated a completed procedure's events
- * (sem_data_ready), runs the app's process callback — the blocking serialize +
- * UART TX path — then releases the handoff (sem_event_free) so the RX thread
- * may populate the next procedure.
+ * Blocks until the RX thread has published a populated event pair or a
+ * diagnostic message (sem_data_ready), runs the app's matching callback — the
+ * blocking serialize + UART TX path — then releases the handoff
+ * (sem_event_free) so the RX thread may publish the next item.
  *
- * This moves the blocking serialize path OFF the BT RX thread. Running it
- * inline in the RX thread (the pre-#173 behaviour) starves the SDC's
- * step-data delivery until the controller aborts the surplus subevents —
- * the COMPLETE-but-empty procedures of #173. While the consumer is busy, the
- * RX thread drops surplus completed procedures at the handoff gate instead
- * (counted in g_event_backlog_drops, LOG_WRN every 128th drop). The serialize
- * cost and the procedure-rate ceiling it imposes are quantified in
- * docs/architecture.md.
+ * This moves the blocking serialize path OFF the BT RX thread for RAS and
+ * IPT alike. Running it inline in the RX thread (the pre-#173 behaviour)
+ * starves the SDC's step-data delivery until the controller aborts the
+ * surplus subevents — the COMPLETE-but-empty procedures of #173. While the
+ * consumer is busy, the RX thread drops surplus completed procedures at the
+ * handoff gate instead (counted in g_event_backlog_drops, LOG_WRN on the
+ * first drop and every 128th). The serialize cost and the procedure-rate
+ * ceiling it imposes are quantified in docs/architecture.md.
  */
 void cs_initiator_consume_pending_event(void)
 {
     k_sem_take(&sem_data_ready, K_FOREVER);
 
-    if (gp_process_subevent_cb)
+    char msg[CS_INITIATOR_LOG_MESSAGE_MAX_LEN];
+
+    while (k_msgq_get(&g_log_msgq, msg, K_NO_WAIT) == 0)
     {
-        gp_process_subevent_cb(&g_local_event, &g_peer_event);
+        if (gp_process_log_cb)
+        {
+            gp_process_log_cb(msg);
+        }
     }
 
-    k_sem_give(&sem_event_free);
+    if (g_event_pending)
+    {
+        g_event_pending = false;
+
+        if (gp_process_subevent_cb)
+        {
+            gp_process_subevent_cb(&g_local_event, &g_peer_event);
+        }
+
+        k_sem_give(&sem_event_free);
+    }
 }
-#endif  // IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
 
 /** @brief Register the ranging data callback for realtime or on-demand RD mode. */
 void cs_initiator_set_ranging_data_cb(cs_initiator_ranging_data_cb p_cb)
@@ -232,10 +316,16 @@ static void config_created_forwarder(struct bt_conn_le_cs_config * config)
     }
 }
 
-/** @brief Register callback invoked to process populated subevent events (IPT mode). */
+/** @brief Register callback invoked to process populated subevent events (consumer thread). */
 void cs_initiator_set_process_subevent_cb(cs_initiator_process_subevent_cb p_cb)
 {
     gp_process_subevent_cb = p_cb;
+}
+
+/** @brief Register callback invoked to emit a queued diagnostic message (consumer thread). */
+void cs_initiator_set_process_log_cb(cs_initiator_process_log_cb p_cb)
+{
+    gp_process_log_cb = p_cb;
 }
 
 #if IS_ENABLED(CONFIG_BT_RAS_RREQ)
@@ -350,39 +440,37 @@ static void subevent_result_cb(struct bt_conn * p_conn, struct bt_conn_le_cs_sub
          * the differing part; the shared tail after it (reset the net buffer,
          * return the sem_local_steps token) runs once for every outcome:
          *   - empty procedure → LOG_WRN only (nothing to consume)
-         *   - consumer busy → drop the procedure, counted (sem_event_free held)
-         *   - otherwise → populate → hand off to the main loop thread, which
-         *     runs the process callback (serialize + UART) via
+         *   - consumer busy → drop the procedure, counted by the claim
+         *   - otherwise → populate → publish to the consumer thread, which
+         *     runs the process callback (watchdog pet + serialize + UART) via
          *     cs_initiator_consume_pending_event(). The process callback must
          *     NOT run here: it blocks on the UART TX-complete handshake, and
          *     a blocked RX thread starves the SDC's step-data delivery until
-         *     it aborts the surplus subevents (#173). Giving sem_data_ready
-         *     before the shared tail is safe — the consumer reads only the
-         *     static event structs, which populate filled by value; the net
-         *     buffer is not read after populate. */
+         *     it aborts the surplus subevents (#173). Publishing before the
+         *     shared tail is safe — the consumer reads only the static event
+         *     structs, which populate filled by value; the net buffer is not
+         *     read after populate. */
         if (latest_local_steps.len == 0)
         {
             LOG_WRN("IPT procedure produced no step data");
         }
-        else if (k_sem_take(&sem_event_free, K_NO_WAIT) < 0)
-        {
-            g_event_backlog_drops++;
-            if (g_event_backlog_drops == 1U || (g_event_backlog_drops % 128U) == 0U)
-            {
-                LOG_WRN("Serialize backlog: dropped %u procedures (UART slower than cadence)", g_event_backlog_drops);
-            }
-        }
         else
         {
-            subevent_populate_inline(&g_local_event,
-                                     &g_peer_event,
-                                     g_local_mac,
-                                     g_peer_mac,
-                                     &g_latest_subevent_header,
-                                     &latest_local_steps,
-                                     BT_CONN_LE_CS_ROLE_INITIATOR);
+            SubeventResultEvent_t * p_local_event;
+            SubeventResultEvent_t * p_peer_event;
 
-            cs_initiator_give_sem_data_ready();
+            if (cs_initiator_claim_event_pair(&p_local_event, &p_peer_event))
+            {
+                subevent_populate_inline(p_local_event,
+                                         p_peer_event,
+                                         g_local_mac,
+                                         g_peer_mac,
+                                         &g_latest_subevent_header,
+                                         &latest_local_steps,
+                                         BT_CONN_LE_CS_ROLE_INITIATOR);
+
+                cs_initiator_publish_event_pair();
+            }
         }
 
         net_buf_simple_reset(&latest_local_steps);

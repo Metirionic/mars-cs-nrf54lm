@@ -274,6 +274,10 @@ empty_fail "IPT procedure produced no step data" \
   initiator-console.log "empty-procedure signatures"
 expect_contains "the empty-procedure count is reported" "empty_procedure_warnings=1"
 
+empty_fail "All subevents in ranging counter 3 were aborted" \
+  initiator-console.log "empty-procedure signatures"
+expect_contains "the RAS empty-procedure count is reported" "empty_procedure_warnings=1"
+
 empty_fail "CS subevent aborted: proc=7 sub_abort_reason=1 proc_abort_reason=0" \
   reflector-console.log "reflector aborts"
 expect_contains "the reflector abort count is reported" "reflector_aborts=1"
@@ -287,6 +291,14 @@ empty_fail "CS liveness watchdog: no completed subevent with step data for 5000 
   reflector-console.log "reflector watchdog recoveries"
 expect_contains "the reflector watchdog count is reported" \
   "reflector_watchdog_recoveries=1"
+
+empty_fail "Serialize backlog: dropped 1 procedures (transport slower than cadence)" \
+  initiator-console.log "serialize backlog reports"
+expect_contains "the serialize backlog count is reported" "serialize_backlog_reports=1"
+
+empty_fail "Diagnostic backlog: dropped 1 COBS log frames (transport slower than cadence)" \
+  initiator-console.log "diagnostic backlog reports"
+expect_contains "the diagnostic backlog count is reported" "diagnostic_backlog_reports=1"
 
 # A log-only stream is well-formed but carries no ranging event.
 LOG_ONLY="${TMP}/capture-log-only"
