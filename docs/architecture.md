@@ -52,7 +52,7 @@ Two firmware roles plus a shared library:
 `reflector/CMakeLists.txt`:
 
 - No `FetchContent`, no Rust, no `mars-bluetooth-hci-rust` — the reflector never serializes.
-- Pulls only `src/main.c` and `common/antenna.c` directly into `app` (`:9-10`). It does **not** link `cs_common`.
+- Pulls only `src/main.c`, `common/antenna.c`, and `common/cs_watchdog.c` directly into `app` (`:9-11`). It does **not** link `cs_common`.
 
 ### shared `common` library
 
@@ -64,7 +64,7 @@ headers without pulling the full Zephyr target (`:15`).
 **The `common` code is shared two different ways — call this out, it is not symmetric:**
 
 - The **initiator** links `cs_common` *and* additionally compiles `common/rust_callbacks.c` straight into `app`.
-- The **reflector** does **not** link `cs_common` at all — it compiles only `common/antenna.c` into its `app`. It needs just the antenna lookups, none of the initiator-side CS/RAS machinery.
+- The **reflector** does **not** link `cs_common` at all — it compiles only `common/antenna.c` and `common/cs_watchdog.c` into its `app`. It needs just the antenna lookups and the liveness watchdog, none of the initiator-side CS/RAS machinery.
 
 `common/` source files:
 
@@ -76,10 +76,9 @@ headers without pulling the full Zephyr target (`:15`).
 | `ble_scanning.{c,h}` | "BLE scanning and Ranging Service UUID filtering" — `scan_init()` configures `bt_scan` with `connect_if_match` and a filter that selects the peer by **Ranging Service UUID** (RAS) or by **advertised name** (IPT — the reflector does not advertise that UUID, so the initiator matches `CONFIG_BT_DEVICE_NAME` instead). |
 | `cs_initiator.{c,h}` | "Shared Channel Sounding initiator connection and configuration flow" — the heart of the initiator: all setup semaphores, the step-data net buffers, the RAS feature bits, the MACs, and `cs_initiator_start()` which runs the full setup handshake; also defines the local `subevent_result_cb`. |
 | `cs_step_parse.{c,h}` | "Shared CS step data parsing into SubeventResultEvent structures" — `cs_step_parse()` (RAS) converts local + peer HCI Mode-2 step records into the Rust FFI `SubeventResultEvent_t` / `Step_t` / `Mode2_t` fields; also populates the Mode-0 calibration steps (kind per role from the step `data_len`, measured frequency offset passed through raw); `cs_step_parse_inline()` (IPT) parses the local steps only and synthesizes the peer event per step with a transparent identity (1.0 + 0.0j) Phase Correction Term for Mode-2 and a zeroed `MODE0_REFLECTOR` step for Mode-0, so the downstream combiner sees a structurally valid `ORIGIN_REFLECTOR` event with a no-op phase rotation. |
-| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector); on timeout it invokes the registered recovery callback (both apps force a disconnect that reboots the pair). Built into `cs_common`, so both roles link it. |
+| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector); on timeout it invokes the registered recovery callback (both apps force a disconnect that reboots the pair). Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
 | `subevent.{c,h}` | "CS subevent data parsing into SubeventResultEvent structures" — `subevent_populate()` (RAS) fills the initiator + reflector events from both the local and peer step buffers via `cs_step_parse()`; `subevent_populate_inline()` (IPT) fills them from the local step buffer only via `cs_step_parse_inline()` (the reflector's phase contribution is embedded in the local tones, so there is no peer buffer). Both seed the shared header through `fill_subevent_header()`. |
 | `rust_callbacks.c` | "Shared Rust FFI callback implementations" — the C functions the Rust runtime calls back into (`rust_panic_cb`, `rust_print_cb`). Compiled into the initiator `app` only. |
-| `rust_ffi_types.h` | A re-include shim: `#include "mars_bluetooth_hci.h"` so `cs_step_parse.h` can name the Rust-generated `SubeventResultEvent_t` without depending on the include path setup directly. |
 
 ## The Rust COBS-serializer bridge
 
@@ -329,13 +328,15 @@ sequenceDiagram
 
 The populate runs on the **RX thread** but the serialize + UART write runs on the
 **main loop thread** — the deliberate split that fixes #173. One ~26.6 KB COBS
-event takes ~289 ms to DMA out at 921600 baud (≈3.5 events/s wire limit); run
-that inline in the RX thread and the HCI step-data delivery backs up, the SDC
-aborts the surplus subevents, and the procedures complete empty (the #173
-symptom: ~70 % empty completions at `procedure_interval = 1`). With the handoff,
-the SDC runs every procedure at the full cadence and surplus events drop at the
-`sem_event_free` gate instead — visibly, with a counted warning. The wire rate
-still caps the output at ~3.5 events/s; raising the procedure cadence above that
+event takes ~289 ms to DMA out at 921600 baud (≈3.5 events/s wire limit) — the
+timing is baud-dependent, and the nRF54LM20-DK's 1,000,000 baud is
+proportionally faster. Run that inline in the RX thread and the HCI step-data
+delivery backs up, the SDC aborts the surplus subevents, and the procedures
+complete empty (the #173 symptom: ~70 % empty completions at
+`procedure_interval = 1`). With the handoff, the SDC runs every procedure at
+the full cadence and surplus events drop at the `sem_event_free` gate instead —
+visibly, with a counted warning. The wire rate still caps the output
+(≈3.5 events/s at 921600 baud); raising the procedure cadence above that
 increases the drop rate, it does not lose data silently.
 `sem_local_steps` still guards `latest_local_steps` between the accumulator and
 the populate (same-thread now, but the lock also paces procedure-to-procedure);
@@ -392,8 +393,9 @@ populated event pair: the RX thread takes it `K_NO_WAIT` before populating
 → drop the procedure, counted in `g_event_backlog_drops`), and
 `cs_initiator_consume_pending_event()` gives it back after the app's process
 callback returns (`common/cs_initiator.c:202`). This is the #173 valve — it
-keeps the ~289 ms serialize + UART TX path off the RX thread while making the
-overflow visible instead of turning surplus procedures into controller aborts.
+keeps the serialize + UART TX path (~289 ms at 921600 baud) off the RX thread
+while making the overflow visible instead of turning surplus procedures into
+controller aborts.
 
 **`sem_data_ready`** (`K_SEM_DEFINE(sem_data_ready, 0, 1)`,
 `common/cs_initiator.c:32`) is the only semaphore the main loop waits on. In
@@ -453,8 +455,11 @@ boot; boards without the property compile the block out. The port and pin are
 entirely board-owned — no model-specific assignment lives in shared code.
 
 **Presets → `west build`.** `CMakePresets.json` (per app) is the source of truth
-for the preset → (board, overlay, conf-fragment) mapping. Both preset arrays
-are empty in the scaffold state; the first board support change fills them.
+for the preset → (board, overlay, conf-fragment) mapping.
+`initiator/CMakePresets.json` defines the two initiator presets
+(`nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`) and
+`reflector/CMakePresets.json` the two reflector presets
+(`nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`).
 `ci/common.sh` (`parse_preset`) reads the file with a small Python snippet and
 extracts `BOARD`, `CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` from
 `cacheVariables`, resolving each path relative to the app dir.
@@ -518,7 +523,9 @@ IPT table above). The antenna/path counts themselves come from the
   buffer, so `uart_tx()` is never called while a previous transfer is still
   DMA-ing out of it (no on-wire COBS corruption, no `-EBUSY`)
   (`initiator/src/serialize.c`). One event is ~26.6 KB ≈ 289 ms at 921600 baud
-  (≈3.5 events/s wire limit). In **RAS** that blocking still runs inside
+  (≈3.5 events/s wire limit); the figures are baud-dependent — at the
+  nRF54LM20-DK's 1,000,000 baud the same event drains proportionally faster.
+  In **RAS** that blocking still runs inside
   `ranging_data_cb` (RX context) — at the default
   `min/max_procedure_interval = 10/10` cadence the prior TX finishes within the
   gap, so the gate returns immediately. In **IPT** the #173 fix moved the

@@ -5,19 +5,25 @@ Nordic nRF54LM20 Channel Sounding firmware samples. Runs on top of
 and uses [mars-bluetooth-hci](https://github.com/Metirionic/mars-bluetooth-hci)
 for COBS serialization of CS measurement data.
 
-> **Status: repository scaffold.** The firmware sources, build system, CI, and
-> documentation structure are in place. No board support is shipped yet — the
-> first development board (overlays, build presets, and the CI/release matrix)
-> lands in the next change. See [docs/hardware.md](docs/hardware.md#board-support-contract)
-> for what that change adds.
-
 ## Get started
 
 Channel Sounding needs a pair of boards — one initiator, one reflector. Pick a path:
 
-- **Flash prebuilt firmware** — no build step; flash and run. No release has
-  been published yet; see [docs/flash-quickstart.md](docs/flash-quickstart.md).
-- **Build from source** — native toolchain + build. See [docs/build-from-source.md](docs/build-from-source.md).
+- **Flash prebuilt firmware** — no build step. Download
+  `cs-ranging-firmware.zip` from the
+  [latest release](https://github.com/Metirionic/mars-cs-nrf54lm/releases),
+  flash two nRF54LM20-DKs, and open the COBS port at 1,000,000 baud. See
+  [docs/flash-quickstart.md](docs/flash-quickstart.md).
+- **Build from source** — native toolchain + build. See
+  [docs/build-from-source.md](docs/build-from-source.md).
+
+## Supported boards
+
+The nRF54LM20-DK is supported, built as `nrf54lm20dk/nrf54lm20a/cpuapp`. It
+exposes the COBS ranging stream on VCOM0 (`uart30`, 1,000,000 baud) and the
+console on VCOM1 (`uart20`, 115200 baud). See
+[docs/hardware.md](docs/hardware.md#supported-boards) for the DK wiring notes
+and the board-support contract.
 
 ## Firmware variants
 
@@ -42,19 +48,25 @@ RAS-vs-IPT contrast and per-mode data flow.
 ## Presets
 
 Builds are driven by CMake presets in `initiator/CMakePresets.json` and
-`reflector/CMakePresets.json`. Preset names follow
-`<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt` suffix for IPT:
-`cent`/`peri` is the BLE role, `a<n>` is the antenna count, and the trailing
-number is the antenna-path count.
+`reflector/CMakePresets.json`. The nRF54LM20-DK defines four:
 
-No presets are defined yet. The first board support change adds them together
-with the board overlays; see [docs/hardware.md](docs/hardware.md) for the
-board-support contract and the antenna/path fragment mapping.
+| Preset | Role | Mode |
+|--------|------|------|
+| `nrf54lm20dk_cent_a1_1` | Initiator | RAS |
+| `nrf54lm20dk_peri_a1_1` | Reflector | RAS |
+| `nrf54lm20dk_cent_a1_1_ipt` | Initiator | IPT |
+| `nrf54lm20dk_peri_a1_1_ipt` | Reflector | IPT |
+
+Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
+suffix for IPT: `cent`/`peri` is the BLE role, `a<n>` is the antenna count, and
+the trailing number is the antenna-path count. See
+[docs/hardware.md](docs/hardware.md#presets) for the full preset table and
+[boards/README.md](boards/README.md) for the board-support contract.
 
 ## Hardware reference
 
-For the board-support contract, antenna/path fragment mapping, and the eventual
-board table, see [docs/hardware.md](docs/hardware.md).
+For the board-support contract, DK wiring notes, antenna/path fragment
+mapping, and the preset table, see [docs/hardware.md](docs/hardware.md).
 
 ## Architecture
 

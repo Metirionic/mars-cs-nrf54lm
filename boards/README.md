@@ -3,6 +3,16 @@
 The nRF54LM20-DK is supported. This file documents the contract every board
 support change follows, so the shared firmware and CI stay board-agnostic.
 
+## Supported boards
+
+| Board | Build target | Overlay | Presets |
+|-------|--------------|---------|---------|
+| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, `nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt` |
+
+Each supported board gets a row here and in the
+[hardware reference](../docs/hardware.md#supported-boards), which also carries
+the wiring notes and the preset table.
+
 ## What a board support change adds
 
 1. **A devicetree overlay** at
@@ -11,6 +21,10 @@ support change follows, so the shared firmware and CI stay board-agnostic.
    - `chosen { cobs-uart = &uartXX; }` — the initiator's COBS ranging stream.
      Set that UART to the board-declared baud (`921600` where the transport
      supports it, `1,000,000` on the nRF54LM20-DK VCOM), 8N1, no flow control.
+     The rate is board-declared: it lives in the board overlay's
+     `current-speed`, so a future board picks a rate its own transport supports
+     without changing shared firmware. The DK uses 1,000,000 because its J-Link
+     VCOM bridge supports up to 1 Mbps but not 921600.
    - The console chosen nodes (`zephyr,console`, `zephyr,shell-uart`,
      `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`) when the
      board has a console UART that its board definition does not already

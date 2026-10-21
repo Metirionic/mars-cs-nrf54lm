@@ -6,12 +6,6 @@ which covers flashing prebuilt firmware with no build step. For the board
 support contract and the antenna/path reference, see
 [docs/hardware.md](hardware.md).
 
-> **No board presets yet.** The build system is complete, but
-> `initiator/CMakePresets.json` and `reflector/CMakePresets.json` are empty
-> until the first development board lands. The commands below use a
-> `<preset>` placeholder; see [boards/README.md](../boards/README.md) for what
-> a board support change adds.
-
 ## What you need
 
 The native path targets a Debian/Ubuntu host. The install codifier (next
@@ -60,9 +54,9 @@ source ~/.ncs-venv/bin/activate
 
 The `onboarding-verification` CI job runs this exact command (with
 `--with-rust`) from a clean `ubuntu:24.04` container on every pull request and
-builds **both** the reflector and the initiator once board presets exist, so
-the documented native install path — including the initiator's Rust
-COBS-serializer build — cannot silently drift.
+builds **both** the reflector and the initiator, so the documented native
+install path — including the initiator's Rust COBS-serializer build — cannot
+silently drift.
 
 ## Where the install lands (workspace layout)
 
@@ -85,15 +79,20 @@ disk — do not conflate them:
 
 ## Build the firmware
 
-Activate the venv and build an app the same way CI does:
+Activate the venv and build a preset the same way CI does. The nRF54LM20-DK
+defines two RAS and two IPT presets (see the
+[preset table](hardware.md#presets)):
 
 ```bash
 source ~/.ncs-venv/bin/activate
 
-# Once the first board lands, <preset> is a name from
-# initiator/CMakePresets.json or reflector/CMakePresets.json.
-bash ci/build.sh --target initiator --preset <preset>
-bash ci/build.sh --target reflector --preset <preset>
+# RAS pair
+bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_1
+bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_1
+
+# IPT pair
+bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_1_ipt
+bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_1_ipt
 ```
 
 Channel Sounding needs **both** an initiator and a reflector, so build a
@@ -132,10 +131,11 @@ bash ci/build.sh --target reflector \
   --preset "$(bash ci/list-presets.sh reflector)" --release-dir release
 ```
 
-With no presets defined yet, `ci/list-presets.sh` prints nothing; the CI and
-release workflows gate their build jobs on a non-zero preset count, so they
-are skipped until the first board support change lands. Passing an empty
-`--preset` to `ci/build.sh` is rejected.
+`ci/list-presets.sh` prints the comma-separated preset names for a role. In
+`ci.yml`, each role's build job is skipped independently when that role has no
+presets. The release workflow is stricter: its build job requires a non-zero
+preset count for **both** roles, so a role with no presets skips the whole
+release build. Passing an empty `--preset` to `ci/build.sh` is rejected.
 
 ## Reproduce CI exactly (Docker, zero local install)
 
@@ -176,22 +176,25 @@ docker run --rm -it --entrypoint /bin/bash -v "$PWD":/work -w /work \
   '
 ```
 
-Both paths are CI-verified once presets exist — the native path by
-`onboarding-verification` (a clean `ubuntu:24.04` container), the Docker path
-by the `build-initiator` / `build-reflector` and `release` jobs. The Docker
-image is the secondary path; for day-to-day work and `west flash`, prefer the
-native install above.
+Both paths are CI-verified — the native path by `onboarding-verification` (a
+clean `ubuntu:24.04` container), the Docker path by the `build-initiator` /
+`build-reflector` and `release` jobs. The Docker image is the secondary path;
+for day-to-day work and `west flash`, prefer the native install above.
 
 ## Flash your build
 
-Once a build completes, flash it to a board over the board's debug probe. Each
-preset builds into its own directory (`initiator/build_<preset>`), so point
+Once a build completes, flash it over the DK's on-board J-Link. Each preset
+builds into its own directory (`initiator/build_<preset>`), so point
 `west flash` at the build directory you want to flash:
 
 ```bash
-west flash -d initiator/build_<preset>      # initiator
-west flash -d reflector/build_<preset>      # reflector
+west flash -d initiator/build_nrf54lm20dk_cent_a1_1      # initiator, RAS
+west flash -d reflector/build_nrf54lm20dk_peri_a1_1      # reflector, RAS
 ```
+
+For an IPT pair, use the `_ipt` build directories:
+`initiator/build_nrf54lm20dk_cent_a1_1_ipt` and
+`reflector/build_nrf54lm20dk_peri_a1_1_ipt`.
 
 For flashing **prebuilt** firmware with no build step, see
 [docs/flash-quickstart.md](flash-quickstart.md).
