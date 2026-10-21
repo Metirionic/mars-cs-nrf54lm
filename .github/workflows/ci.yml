@@ -13,7 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          # Pin the hook interpreter: cmakelang (cmake-format) uses
+          # re.Scanner, which rejects capturing groups on Python 3.13+ —
+          # '3.x' now resolves to 3.15 and crashes the cmake-format hook.
+          python-version: '3.12'
       - uses: pre-commit/action@v3.0.1
 
   verify-ncs-version:

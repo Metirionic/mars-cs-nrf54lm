@@ -36,3 +36,7 @@ repos:
     rev: v0.6.13
     hooks:
       - id: cmake-format
+        # cmakelang (cmake-format) uses re.Scanner, which rejects capturing
+        # groups on Python 3.13+ and crashes. Pin the hook env to 3.12 so the
+        # hook works regardless of the interpreter pre-commit itself runs on.
+        language_version: python3.12
