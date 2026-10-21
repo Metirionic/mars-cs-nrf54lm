@@ -9,6 +9,33 @@ This document is a reference only — it does not cover physical antenna wiring,
 RF placement, antenna tuning, the COBS wire format, or the mars-bluetooth-hci
 API.
 
+## Supported boards
+
+| Board | Build target | COBS stream | Console |
+|-------|--------------|-------------|---------|
+| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | VCOM0 (`uart30`), 1,000,000 baud, 8N1, no flow control | VCOM1 (`uart20`), 115200 baud |
+
+The DK is built as the **A** variant (`nRF54LM20A`), the NPU-less variant
+**built for** the B-silicon DK (`SOC_NRF54LM20A_DEVELOP_IN_NRF54LM20B`; both
+bench DKs report `nRF54LM20A ENGA`). The A-only target is deliberate.
+
+### nRF54LM20-DK wiring notes
+
+- **VCOM0 (`uart30`) — COBS ranging stream.** The initiator writes the
+  COBS-encoded ranging stream here at **1,000,000 baud (1 Mbps)**, 8N1, no flow
+  control.
+  The DK's J-Link VCOM bridge supports up to 1 Mbps and explicitly does **not**
+  support 921600 baud, so 1,000,000 is the board-declared rate — it is not a
+  typo for the 921600 used where the transport supports it.
+- **VCOM1 (`uart20`) — console.** The board-default console stays at 115200
+  baud. Use it to tell the two virtual COM ports apart: VCOM1 prints readable
+  log output, while VCOM0 carries the binary stream.
+- **One antenna, one RF path, no switch.** The DK has a single 2.4 GHz trace
+  antenna and no antenna-switch IC or RF-supply rail. The overlay therefore
+  deliberately omits both `cs_antenna_switch` and `rf-switch-supply-gpios`.
+  The upstream sample's antenna-switch pins (P1.17–P1.20) collide with the
+  console UART/LFXO on this board — do not copy them.
+
 ## Board support contract
 
 **Supported board: nRF54LM20-DK** (`nrf54lm20dk/nrf54lm20a/cpuapp`). The
@@ -19,7 +46,10 @@ firmware sources stay board-agnostic; a board support change consists of:
    It provides:
    - `chosen { cobs-uart = &uartXX; }` — the initiator's COBS ranging stream,
      run at the board-declared baud (`921600` where the transport supports it,
-     `1,000,000` on the nRF54LM20-DK VCOM), 8N1, no flow control.
+     `1,000,000` on the nRF54LM20-DK VCOM), 8N1, no flow control. The rate is
+     board-declared: it lives in the overlay's `current-speed`, so a future
+     board picks a rate its own transport supports without touching shared
+     firmware.
    - The console chosen nodes when the board has a console UART that its board
      definition does not already choose: `zephyr,console`, `zephyr,shell-uart`,
      `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, and `zephyr,bt-c2h-uart`.
@@ -51,8 +81,10 @@ firmware sources stay board-agnostic; a board support change consists of:
 3. **Presets** in `initiator/CMakePresets.json` and
    `reflector/CMakePresets.json`, setting `BOARD`, `CONF_FILE`,
    `EXTRA_CONF_FILE`, `DTC_OVERLAY_FILE`, and the preset-local `binaryDir`.
-4. **Documentation** — a row per board in the preset table below, plus wiring
-   notes when the board is not a plain development kit.
+4. **Documentation** — a row per board in the
+   [Supported boards](#supported-boards) table and, when the board has
+   non-obvious wiring, a wiring-notes subsection (see
+   [nRF54LM20-DK wiring notes](#nrf54lm20-dk-wiring-notes)).
 5. **Nothing else.** CI and the release workflow enumerate every preset via
    `ci/list-presets.sh`, so a new preset is built automatically.
 

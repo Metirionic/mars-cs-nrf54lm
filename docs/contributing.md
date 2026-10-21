@@ -81,8 +81,8 @@ filter). Every PR runs all jobs in
 - `lint` (ubuntu-latest) — `pre-commit/action@v3.0.1` runs
   `pre-commit run --all-files`. This is the only place the hooks above are enforced.
 - `detect-presets` (ubuntu-latest) — reports whether either role has build
-  presets. The build jobs below consume its output and are skipped while the
-  preset matrix is empty (the current scaffold state).
+  presets. The build jobs below consume its output and are skipped only when a
+  role has no presets defined.
 - `build-initiator` (NCS v3.4.0 container) — `ci/build.sh --target initiator`
   over every preset in `initiator/CMakePresets.json`.
 - `build-reflector` (same container) — `ci/build.sh --target reflector` over
@@ -99,10 +99,10 @@ links between the [README](../README.md) and the guides in `docs/` (this one
 included), so a renamed or moved guide is caught before a user hits a dead
 link; confirms the release-artifact name in
 [docs/flash-quickstart.md](flash-quickstart.md) matches the archive
-[release.yml](../.github/workflows/release.yml) produces; and — once board
-presets exist — cross-checks the preset names in the docs table against the
-`configurePresets` in `initiator/CMakePresets.json` and
-`reflector/CMakePresets.json`. Run it locally with `bash scripts/check-docs.sh`.
+[release.yml](../.github/workflows/release.yml) produces; and cross-checks the
+preset names in the docs table against the `configurePresets` in
+`initiator/CMakePresets.json` and `reflector/CMakePresets.json`. Run it locally
+with `bash scripts/check-docs.sh`.
 
 There is no `.github/pull_request_template.md`, no `CODEOWNERS`, and no in-repo
 branch-protection hint — a PR is simply a branch opened against `main` with all
@@ -111,14 +111,16 @@ pushing; to pre-empt the build jobs, reproduce them locally with the two
 `ci/build.sh` commands above (see
 [docs/build-from-source.md](build-from-source.md) for toolchain setup).
 
-## Adding the first board
+## Adding a board
 
 The board-support contract is documented in
 [boards/README.md](../boards/README.md) and
 [docs/hardware.md](hardware.md#board-support-contract). In short: overlay,
-optional board `.conf`, presets, and docs rows. CI and the release workflow
-pick up new presets automatically through `ci/list-presets.sh` — there are no
-hand-maintained preset lists to update.
+optional board `.conf`, presets, and docs rows. The nRF54LM20-DK is the first
+board added under this contract — use its overlay and preset entries as the
+reference. CI and the release workflow pick up new presets automatically
+through `ci/list-presets.sh` — there are no hand-maintained preset lists to
+update.
 
 ## NCS version management
 
