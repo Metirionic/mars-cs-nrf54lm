@@ -30,6 +30,8 @@
 #define NUM_MODE_0_STEPS 3
 /** @brief Sentinel value indicating no valid procedure counter. */
 #define PROCEDURE_COUNTER_NONE (-1)
+/** @brief Max length of a queued diagnostic log message, NUL included. */
+#define CS_INITIATOR_LOG_MESSAGE_MAX_LEN 64U
 /** @brief Per-step framing in the local IPT step buffer: mode | channel | data_len.
  *
  * Hoisted out of the RAS/IPT @c #if below so the walk loop in cs_step_parse.c
@@ -188,10 +190,10 @@ void cs_initiator_publish_event_pair(void);
  * the message is dropped, counted, and reported (LOG_WRN on the first drop and
  * every 128th).
  *
- * @param p_message  NUL-terminated message (copied before return).
- * @return true when queued, false when the queue is full.
+ * @param p_message  NUL-terminated message (copied before return; truncated to
+ *                   @ref CS_INITIATOR_LOG_MESSAGE_MAX_LEN - 1 characters).
  */
-bool cs_initiator_queue_log_message(const char * p_message);
+void cs_initiator_queue_log_message(const char * p_message);
 
 void                                   cs_initiator_set_ranging_data_cb(cs_initiator_ranging_data_cb cb);
 void                                   cs_initiator_set_ranging_data_ready_cb(cs_initiator_ranging_data_ready_cb cb);

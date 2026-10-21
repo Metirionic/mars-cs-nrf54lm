@@ -64,14 +64,14 @@ static void process_log_cb(const char * p_message)
 /** @brief Queue a formatted COBS diagnostic frame for the consumer thread. */
 static void queue_diagnostic(const char * p_format, ...)
 {
-    char    msg[64];
+    char    msg[CS_INITIATOR_LOG_MESSAGE_MAX_LEN];
     va_list args;
 
     va_start(args, p_format);
     vsnprintf(msg, sizeof(msg), p_format, args);
     va_end(args);
 
-    (void)cs_initiator_queue_log_message(msg);
+    cs_initiator_queue_log_message(msg);
 }
 
 /**
@@ -152,12 +152,13 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
         return;
     }
 
-    /* CS liveness watchdog (#116): this is the "completed procedure with step
-     * data" signal, kept on the RX thread at the completion rate exactly as
-     * before the consumer-thread handoff — a transport stall must not add
-     * watchdog recoveries the baseline did not have. The len==0 branch above
-     * deliberately does NOT pet — during the abort-storm RDs keep arriving at
-     * 5/s but never reach this point. */
+    /* CS liveness watchdog (#116): the pet trigger is unchanged — a completed
+     * procedure with step data, on the RX thread at the completion rate. The
+     * blocking TX no longer runs on this thread, though, so a stalled consumer
+     * no longer shows up as suppressed pets; it shows up as procedures dropped
+     * at the handoff gate below (counted). The len==0 branch above deliberately
+     * does NOT pet — during the abort-storm RDs keep arriving at 5/s but never
+     * reach this point. */
     cs_watchdog_pet();
 
     /* The RX thread only populates and publishes the shared event pair; the

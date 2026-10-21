@@ -9,7 +9,13 @@
 #   - the initiator COBS ranging stream (VCOM0, uart30, 1,000,000 8N1).
 #
 # and asserts the release-gate conditions:
-#   - zero "IPT procedure produced no step data" warnings (initiator);
+#   - zero empty-procedure signatures on the initiator (both the IPT
+#     "IPT procedure produced no step data" and the RAS "All subevents in
+#     ranging counter" warnings);
+#   - zero "Serialize backlog" drop reports on the initiator console (no
+#     procedure was dropped at the RX-thread -> consumer handoff gate);
+#   - zero "Diagnostic backlog" drop reports on the initiator console (the
+#     diagnostic queue never overflowed);
 #   - zero "CS subevent aborted" warnings (reflector);
 #   - zero "CS liveness watchdog" recoveries (both consoles);
 #   - at least one structurally valid COBS event frame on the initiator stream.
@@ -361,7 +367,8 @@ init_text = init_bytes.decode("utf-8", "replace")
 refl_text = refl_bytes.decode("utf-8", "replace")
 
 # Console signatures (exact literals from the firmware).
-empty_procedures = init_text.count("IPT procedure produced no step data")
+empty_procedures = (init_text.count("IPT procedure produced no step data") +
+                    init_text.count("All subevents in ranging counter"))
 reflector_aborts = refl_text.count("CS subevent aborted")
 init_watchdog = init_text.count("CS liveness watchdog")
 refl_watchdog = refl_text.count("CS liveness watchdog")
@@ -372,6 +379,7 @@ procedures = [int(value) for value in
 serialization_events = len(procedures)
 last_procedure = procedures[-1] if procedures else -1
 backlog_reports = len(re.findall(r"Serialize backlog: dropped", init_text))
+diagnostic_backlog_reports = init_text.count("Diagnostic backlog")
 initiator_banner = int("Starting Mars Channel Sounding Initiator" in init_text)
 reflector_banner = int("Starting Mars Channel Sounding Reflector" in refl_text)
 
@@ -423,6 +431,10 @@ if capture_status != "replay":
 assertions.extend([
     ("initiator empty-procedure signatures == 0",
      empty_procedures == 0, f"found {empty_procedures}"),
+    ("initiator serialize backlog reports == 0",
+     backlog_reports == 0, f"found {backlog_reports}"),
+    ("initiator diagnostic backlog reports == 0",
+     diagnostic_backlog_reports == 0, f"found {diagnostic_backlog_reports}"),
     ("reflector aborts == 0",
      reflector_aborts == 0, f"found {reflector_aborts}"),
     ("initiator watchdog recoveries == 0",
@@ -452,6 +464,7 @@ counts = [
     ("serialization_events", serialization_events),
     ("last_procedure_counter", last_procedure),
     ("serialize_backlog_reports", backlog_reports),
+    ("diagnostic_backlog_reports", diagnostic_backlog_reports),
     ("initiator_banner", initiator_banner),
     ("reflector_banner", reflector_banner),
     ("initiator_console_bytes", len(init_bytes)),

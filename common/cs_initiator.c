@@ -48,8 +48,6 @@ static SubeventResultEvent_t g_local_event;
 static SubeventResultEvent_t g_peer_event;
 /** @brief True while a published event pair is waiting for the consumer. */
 static bool g_event_pending;
-/** @brief Max queued diagnostic message length (NUL included). */
-#define HANDOFF_LOG_MAX_LEN 64U
 /** @brief Depth of the RX-thread → consumer diagnostic queue. */
 #define HANDOFF_LOG_DEPTH 4U
 /** @brief Fault-path diagnostics queued for the consumer thread.
@@ -59,7 +57,7 @@ static bool g_event_pending;
  * must not silently lose the diagnostics that explain a stall. Overflow is
  * bounded and counted.
  */
-K_MSGQ_DEFINE(g_log_msgq, HANDOFF_LOG_MAX_LEN, HANDOFF_LOG_DEPTH, 4);
+K_MSGQ_DEFINE(g_log_msgq, CS_INITIATOR_LOG_MESSAGE_MAX_LEN, HANDOFF_LOG_DEPTH, 4);
 /** @brief Diagnostics dropped because the queue was full. */
 static uint32_t g_diagnostic_drops;
 #if IS_ENABLED(CONFIG_BT_RAS_RREQ)
@@ -178,12 +176,25 @@ void cs_initiator_give_sem_local_steps(void)
     k_sem_give(&sem_local_steps);
 }
 
+/** @brief Count a dropped item and decide whether this drop should be logged.
+ *
+ * The first drop and every 128th after it are reported; the rest are counted
+ * only, so a stalled transport cannot flood the console.
+ *
+ * @param p_drops  Drop counter to increment.
+ * @return true when this drop should be logged, false otherwise.
+ */
+static bool should_report_drop(uint32_t * p_drops)
+{
+    (*p_drops)++;
+
+    return *p_drops == 1U || (*p_drops % 128U) == 0U;
+}
+
 /** @brief Count and report a procedure dropped at the handoff gate. */
 static void report_backlog_drop(void)
 {
-    g_event_backlog_drops++;
-
-    if (g_event_backlog_drops == 1U || (g_event_backlog_drops % 128U) == 0U)
+    if (should_report_drop(&g_event_backlog_drops))
     {
         LOG_WRN("Serialize backlog: dropped %u procedures (transport slower than cadence)", g_event_backlog_drops);
     }
@@ -212,9 +223,9 @@ void cs_initiator_publish_event_pair(void)
     k_sem_give(&sem_data_ready);
 }
 
-bool cs_initiator_queue_log_message(const char * p_message)
+void cs_initiator_queue_log_message(const char * p_message)
 {
-    char   msg[HANDOFF_LOG_MAX_LEN];
+    char   msg[CS_INITIATOR_LOG_MESSAGE_MAX_LEN];
     size_t len = MIN(strlen(p_message), sizeof(msg) - 1U);
 
     memcpy(msg, p_message, len);
@@ -222,18 +233,15 @@ bool cs_initiator_queue_log_message(const char * p_message)
 
     if (k_msgq_put(&g_log_msgq, msg, K_NO_WAIT) != 0)
     {
-        g_diagnostic_drops++;
-        if (g_diagnostic_drops == 1U || (g_diagnostic_drops % 128U) == 0U)
+        if (should_report_drop(&g_diagnostic_drops))
         {
             LOG_WRN("Diagnostic backlog: dropped %u COBS log frames (transport slower than cadence)",
                     g_diagnostic_drops);
         }
-        return false;
+        return;
     }
 
     k_sem_give(&sem_data_ready);
-
-    return true;
 }
 
 /** @brief Consume the pending handoff item on the caller's thread.
@@ -256,7 +264,7 @@ void cs_initiator_consume_pending_event(void)
 {
     k_sem_take(&sem_data_ready, K_FOREVER);
 
-    char msg[HANDOFF_LOG_MAX_LEN];
+    char msg[CS_INITIATOR_LOG_MESSAGE_MAX_LEN];
 
     while (k_msgq_get(&g_log_msgq, msg, K_NO_WAIT) == 0)
     {

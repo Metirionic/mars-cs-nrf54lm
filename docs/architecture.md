@@ -30,7 +30,7 @@ Two firmware roles plus a shared library:
 
 | File | Purpose (`@brief`) |
 |------|---------------------|
-| `main.c` | "Channel Sounding initiator with ranging requester sample" — app entry: registers the consumer-thread callbacks (`process_subevent_cb` / `process_log_cb`) for both modes plus the RAS `ranging_data_cb` / `ranging_data_ready_cb`, builds the `cs_initiator_config`, calls `cs_initiator_start`, and runs the consumer loop. `main()` at `initiator/src/main.c:278`. |
+| `main.c` | "Channel Sounding initiator with ranging requester sample" — app entry: registers the consumer-thread callback `process_subevent_cb` for both modes, the RAS-only `process_log_cb`, and the RAS `ranging_data_cb` / `ranging_data_ready_cb`, builds the `cs_initiator_config`, calls `cs_initiator_start`, and runs the consumer loop. `main()` at `initiator/src/main.c:279`. |
 | `serialize.c` | "Channel Sounding data serializer" — parses local + peer step data into `SubeventResultEvent_t`, calls the Rust COBS serializer, and hands each complete serialization run to the COBS TX seam. |
 | `serialize.h` | Prototypes for `serialize_run` and `serialize_send_log_message`. |
 | `cobs_tx.h` | Transport-neutral COBS TX seam: acquire the run buffer, submit one complete run, release a run that was not submitted. |
@@ -161,11 +161,11 @@ the local procedure completes).
 End-to-end on the initiator:
 
 1. **CS procedure configured and started.** `cs_initiator_start()`
-   (`common/cs_initiator.c:564`) runs a linear setup handshake, each step paced by
+   (`common/cs_initiator.c:572`) runs a linear setup handshake, each step paced by
    a semaphore (see the next section): scan (Ranging Service UUID filter) → connect
    → security → MTU exchange → GATT discovery of the Ranging Service → read RAS
    feature bits → exchange CS capabilities → create the CS config
-   (`BT_CONN_LE_CS_MAIN_MODE_2_SUB_MODE_1`, role `BT_CONN_LE_CS_ROLE_INITIATOR`,
+   (`BT_CONN_LE_CS_MAIN_MODE_2_NO_SUB_MODE`, role `BT_CONN_LE_CS_ROLE_INITIATOR`,
    `BT_CONN_LE_CS_RTT_TYPE_AA_ONLY`, `BT_CONN_LE_CS_CHSEL_TYPE_3B`) → enable CS
    security → set procedure parameters (using `get_antenna_config()` /
    `get_preferred_peer_antenna()`) → enable CS procedures. After it returns,
@@ -173,48 +173,50 @@ End-to-end on the initiator:
 
 2. **RAS receive.** Two receive modes, selected from the peer's RAS feature bits
    (`bt_ras_rreq_read_features` → `ras_feature_bits`, set in `ras_features_read_cb`
-   at `common/cs_initiator.c:342`; the read is issued at `:640`):
+   at `common/cs_initiator.c:350`; the read is issued at `:648`):
 
    - **Realtime RD** — `bt_ras_rreq_realtime_rd_subscribe(conn, &latest_peer_steps, ranging_data_cb)`
-     (`common/cs_initiator.c:653`): the peer's ranging data is pushed straight to `ranging_data_cb`.
+     (`common/cs_initiator.c:661`): the peer's ranging data is pushed straight to `ranging_data_cb`.
    - **On-demand RD** — subscribe to overwritten / ready / on-demand / CP
-     notifications (`common/cs_initiator.c:662-689`); when the peer signals "ready",
+     notifications (`common/cs_initiator.c:670-691`); when the peer signals "ready",
      `ranging_data_ready_cb` pulls the peer data with
      `bt_ras_rreq_cp_get_ranging_data(conn, &latest_peer_steps, counter, ranging_data_cb)`
-     (`initiator/src/main.c:203-207`), and `ranging_data_cb` fires on completion.
+     (`initiator/src/main.c:204-207`), and `ranging_data_cb` fires on completion.
 
    The **local** side's CS subevent data arrives through the BLE connection
    callback `.le_cs_subevent_data_available` → `subevent_data_available_cb`
    (`common/ble_callbacks.c:89`) → `subevent_result_cb`
-   (`common/cs_initiator.c:359`), which accumulates `result->step_data_buf` into
+   (`common/cs_initiator.c:367`), which accumulates `result->step_data_buf` into
    the `latest_local_steps` net buffer.
 
-3. **Populate and hand off.** `ranging_data_cb` (`initiator/src/main.c:86-194`)
+3. **Populate and hand off.** `ranging_data_cb` (`initiator/src/main.c:86-195`)
    validates the peer ranging counter against the local one, drops on mismatch or
    on an all-aborted procedure (queueing the diagnostic frame with
    `cs_initiator_queue_log_message()`), and — on the healthy path — pets the CS
-   liveness watchdog on the RX thread (`initiator/src/main.c:161`), exactly as
-   before the handoff (the pet tracks the completion signal, not the wire rate).
+   liveness watchdog on the RX thread (`initiator/src/main.c:162`). The pet
+   trigger is unchanged (a completed procedure with step data), but because the
+   blocking TX no longer runs on this thread, a stalled consumer shows up as
+   procedures dropped at the handoff gate (counted) rather than suppressed pets.
    It then claims the shared
    RX-thread → consumer-thread handoff slot with
-   `cs_initiator_claim_event_pair()` (`common/cs_initiator.c:192`). A failed
+   `cs_initiator_claim_event_pair()` (`common/cs_initiator.c:203`). A failed
    claim means the consumer is still serializing the previous item: the
    procedure is dropped and counted (`report_backlog_drop()`,
-   `common/cs_initiator.c:182`), the same backpressure valve IPT uses. On
+   `common/cs_initiator.c:195`), the same backpressure valve IPT uses. On
    success it calls
-   `subevent_populate(...)` (`initiator/src/main.c:172-179`) —
+   `subevent_populate(...)` (`initiator/src/main.c:173-180`) —
    `subevent_populate()` (`common/subevent.c:77`) fills both event headers via
    `fill_subevent_header()` and hands the local + peer step buffers to
    `cs_step_parse()`, which fills the `steps[]` arrays — then publishes with
-   `cs_initiator_publish_event_pair()` (`initiator/src/main.c:181`,
-   `common/cs_initiator.c:209`), resets the net buffers, and gives
-   `sem_local_steps` (`initiator/src/main.c:193`). **No serialize or transmit
+   `cs_initiator_publish_event_pair()` (`initiator/src/main.c:182`,
+   `common/cs_initiator.c:220`), resets the net buffers, and gives
+   `sem_local_steps` (`initiator/src/main.c:194`). **No serialize or transmit
    work runs in this RX callback.** `cs_config.role` was saved earlier by
-   `config_create_hook` (`initiator/src/main.c:219`).
+   `config_create_hook` (`initiator/src/main.c:220`).
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:354`, defined at
-   `common/cs_initiator.c:255`), which waits on `sem_data_ready`, drains any
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:355`, defined at
+   `common/cs_initiator.c:263`), which waits on `sem_data_ready`, drains any
    queued diagnostic frames (each via `process_log_cb` →
    `serialize_send_log_message()`), runs the app's `process_subevent_cb` →
    `serialize_run()` on the **main loop thread** for a pending event pair, then
@@ -293,26 +295,26 @@ setup.
 1. **CS procedure configured and started.** `cs_initiator_start()` runs the same
    handshake, but the RAS-specific steps — MTU exchange, GATT discovery of the
    Ranging Service, and the RAS feature read + subscribe — are compiled out
-   (`#if !IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)`, `common/cs_initiator.c:608-622`
-   and `:638-690`). The CS config is created with
+   (`#if !IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)`, `common/cs_initiator.c:616-630`
+   and `:646-698`). The CS config is created with
    `BT_CONN_LE_CS_MAIN_MODE_2_NO_SUB_MODE` and `cs_enhancements_1 = 1` to enable
-   inline PCT transfer (`:717`); `scan_init()` matches the reflector's
+   inline PCT transfer (`:725`); `scan_init()` matches the reflector's
    advertised name, not the Ranging Service UUID (`common/ble_scanning.c:86-98`).
 
 2. **Local-only acquisition.** The local CS subevent data arrives the same way —
    `.le_cs_subevent_data_available` → `subevent_data_available_cb`
    (`common/ble_callbacks.c:89`) → `subevent_result_cb`
-   (`common/cs_initiator.c:359`), which accumulates `result->step_data_buf` into
+   (`common/cs_initiator.c:367`), which accumulates `result->step_data_buf` into
    `latest_local_steps` (guarded by `sem_local_steps`, taken `K_NO_WAIT` at
-   `:377`). There is no RAS ranging-counter indirection: the procedure counter is
+   `:385`). There is no RAS ranging-counter indirection: the procedure counter is
    used directly (`procedure_ranging_counter = result->header.procedure_counter`,
-   `:370`), and there is no `latest_peer_steps` buffer.
+   `:378`), and there is no `latest_peer_steps` buffer.
 
 3. **Populate and hand off.** On procedure complete
    (`BT_CONN_LE_CS_PROCEDURE_COMPLETE`), `subevent_result_cb` claims the shared
    handoff slot with `cs_initiator_claim_event_pair()` and calls
    `subevent_populate_inline(p_local_event, p_peer_event, g_local_mac, g_peer_mac, &g_latest_subevent_header, &latest_local_steps, BT_CONN_LE_CS_ROLE_INITIATOR)`
-   (`common/cs_initiator.c:456-464`).
+   (`common/cs_initiator.c:464-472`).
    `subevent_populate_inline()` (`common/subevent.c:119`) fills both
    event headers and, via `cs_step_parse_inline()`, parses the **local** steps only
    — the peer (reflector) event is synthesized per step with a transparent identity
@@ -321,28 +323,28 @@ setup.
    releases the step buffer and hands the populated event pair to the consumer
    thread through the `sem_event_free` / `sem_data_ready` handshake (below),
    which RAS uses as well. The cascade decides only the differing part; the
-   shared tail after it (`common/cs_initiator.c:468-469`) resets the net buffer
+   shared tail after it (`common/cs_initiator.c:476-477`) resets the net buffer
    and returns the `sem_local_steps` token once for every outcome. Three cases:
-   - **Empty procedure** (`latest_local_steps.len == 0`, `:445-448`): LOG_WRN
+   - **Empty procedure** (`latest_local_steps.len == 0`, `:453-456`): LOG_WRN
      only — do **not** wake the consumer (nothing to consume), so the warning
      log is the only trace; the shared tail still recovers `sem_local_steps`.
    - **Consumer busy** (`sem_event_free` held — the main loop is still
-     serializing the previous event pair, `:454-455`, claim inside
-     `cs_initiator_claim_event_pair()` at `:192-207`): drop the procedure,
+     serializing the previous event pair, `:462-463`, claim inside
+     `cs_initiator_claim_event_pair()` at `:203-218`): drop the procedure,
      counted in `g_event_backlog_drops` (LOG_WRN on the first drop and every
      128th). This is the deliberate backpressure valve; see the threading note
      below.
-   - **Otherwise** (`:456-465`): populate, publish with
+   - **Otherwise** (`:464-473`): populate, publish with
      `cs_initiator_publish_event_pair()` (give `sem_data_ready`). An aborted
      procedure resets the buffer and does **not** wake the consumer
-     (`common/cs_initiator.c:472-480`), mirroring the RAS error path.
+     (`common/cs_initiator.c:480-490`), mirroring the RAS error path.
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:354`, defined at
-   `common/cs_initiator.c:255-280`), which waits on `sem_data_ready` (`:257`),
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:355`, defined at
+   `common/cs_initiator.c:263-288`), which waits on `sem_data_ready` (`:265`),
    drains any queued diagnostics, runs the app's `process_subevent_cb` →
    `cs_watchdog_pet()` + `serialize_run()` on the **main loop thread**, then
-   releases `sem_event_free` (`:278`). Same wire format, same
+   releases `sem_event_free` (`:286`). Same wire format, same
    `mars-bluetooth-hci` output as RAS; there is no separate host-decoder story.
 
 ```mermaid
@@ -396,12 +398,15 @@ thread via `cs_initiator_consume_pending_event()`.
 
 ## Semaphore-driven initiator main loop
 
-There are eleven `k_sem` instances in a RAS build — eight unconditional
-(`common/cs_initiator.c:33-43`, including the shared handoff `sem_event_free`)
-plus three RAS-only (`:66-68`, under `#if IS_ENABLED(CONFIG_BT_RAS_RREQ)`) — in
-three groups; an IPT build compiles the eight, since it does no MTU exchange,
-GATT discovery, or RAS-feature read. (A `K_MSGQ` for RAS fault-path diagnostics
-sits alongside them; it is not a semaphore.)
+There are eleven `k_sem` instances in `common/cs_initiator.c` in a RAS build —
+eight unconditional (`common/cs_initiator.c:33-43`, including the shared handoff
+`sem_event_free`) plus three RAS-only (`:64-66`, under
+`#if IS_ENABLED(CONFIG_BT_RAS_RREQ)`) — in three groups; an IPT build compiles
+the eight in this file, since it does no MTU exchange, GATT discovery, or
+RAS-feature read. The VCOM TX backend adds one more, `sem_tx_done`
+(`initiator/src/cobs_tx_vcom.c:30`), which both initiator builds compile, so a
+RAS build has twelve `k_sem` instances and an IPT build nine. (A `K_MSGQ` for
+RAS fault-path diagnostics sits alongside them; it is not a semaphore.)
 
 **One-shot setup semaphores** (`K_SEM_DEFINE(..., 0, 1)`) pace
 `cs_initiator_start()`. Five are shared by both modes; three (MTU, GATT
@@ -410,17 +415,17 @@ discovery, RAS features) are RAS-only. Each is given by a BLE callback and taken
 
 | Semaphore | Given by | Taken at | Mode |
 |-----------|----------|----------|------|
-| `sem_connected` | `connected_cb`, `common/ble_callbacks.c:114` | `common/cs_initiator.c:590` | both |
-| `sem_security` | `security_changed`, `common/ble_callbacks.c:313` | `common/cs_initiator.c:606` | both |
-| `sem_mtu_exchange_done` | `mtu_exchange_cb`, `common/cs_initiator.c:487` | `common/cs_initiator.c:612` | RAS only |
-| `sem_discovery_done` | `discovery_completed_cb`, `common/cs_initiator.c:500` | `common/cs_initiator.c:621` | RAS only |
-| `sem_ras_features` | `ras_features_read_cb`, `common/cs_initiator.c:342` | `common/cs_initiator.c:647` | RAS only |
-| `sem_remote_capabilities_obtained` | `remote_capabilities_cb`, `common/ble_callbacks.c:142` | `common/cs_initiator.c:699` | both |
-| `sem_config_created` | `config_create_cb`, `common/ble_callbacks.c:224` | `common/cs_initiator.c:732` | both |
-| `sem_cs_security_enabled` | `security_enable_cb`, `common/ble_callbacks.c:240` | `common/cs_initiator.c:741` | both |
+| `sem_connected` | `connected_cb`, `common/ble_callbacks.c:114` | `common/cs_initiator.c:598` | both |
+| `sem_security` | `security_changed`, `common/ble_callbacks.c:313` | `common/cs_initiator.c:614` | both |
+| `sem_mtu_exchange_done` | `mtu_exchange_cb`, `common/cs_initiator.c:495` | `common/cs_initiator.c:620` | RAS only |
+| `sem_discovery_done` | `discovery_completed_cb`, `common/cs_initiator.c:508` | `common/cs_initiator.c:629` | RAS only |
+| `sem_ras_features` | `ras_features_read_cb`, `common/cs_initiator.c:350` | `common/cs_initiator.c:655` | RAS only |
+| `sem_remote_capabilities_obtained` | `remote_capabilities_cb`, `common/ble_callbacks.c:142` | `common/cs_initiator.c:707` | both |
+| `sem_config_created` | `config_create_cb`, `common/ble_callbacks.c:224` | `common/cs_initiator.c:740` | both |
+| `sem_cs_security_enabled` | `security_enable_cb`, `common/ble_callbacks.c:240` | `common/cs_initiator.c:749` | both |
 
 Five of these are registered to the connection-callback table via
-`ble_callbacks_register()` (`common/cs_initiator.c:568-572`); the other three
+`ble_callbacks_register()` (`common/cs_initiator.c:576-580`); the other three
 (MTU, GATT discovery, RAS features — all RAS-only) are given by callbacks defined
 directly in `common/cs_initiator.c`.
 
@@ -429,26 +434,26 @@ directly in `common/cs_initiator.c`.
 1, max 1) guarding the `latest_local_steps` net buffer (and, in RAS,
 `latest_peer_steps`) between the producer and the consumer. The producer is
 `subevent_result_cb` in both modes — it takes `K_NO_WAIT` at
-`common/cs_initiator.c:377` and drops the procedure if it cannot take, recording
+`common/cs_initiator.c:385` and drops the procedure if it cannot take, recording
 `dropped_ranging_counter`. In **RAS** the step-buffer consumer is
 `ranging_data_cb`, which gives it back via
-`cs_initiator_give_sem_local_steps()` at `initiator/src/main.c:193` (and on
+`cs_initiator_give_sem_local_steps()` at `initiator/src/main.c:194` (and on
 every fault path above it). In **IPT** the lock paces procedure-to-procedure
 inside `subevent_result_cb`: taken at the start of a new procedure, given back
 after the populate-and-handoff (or drop) at procedure completion
-(`common/cs_initiator.c:469`).
+(`common/cs_initiator.c:477`).
 
 **`sem_event_free`** (both modes, `K_SEM_DEFINE(sem_event_free, 1, 1)`,
 `common/cs_initiator.c:43`) is the **RX-thread → consumer-thread handoff** for
 the populated event pair: the RX thread takes it `K_NO_WAIT` in
-`cs_initiator_claim_event_pair()` (`common/cs_initiator.c:192`); a failed take =
+`cs_initiator_claim_event_pair()` (`common/cs_initiator.c:203`); a failed take =
 the consumer is still serializing → the procedure is dropped and counted in
 `g_event_backlog_drops`. `cs_initiator_consume_pending_event()` gives it back
-after the app's callback returns (`common/cs_initiator.c:278`). This is the
+after the app's callback returns (`common/cs_initiator.c:286`). This is the
 #173 valve — it keeps the serialize + UART TX path (~289 ms at 921600 baud) off
 the RX thread while making the overflow visible instead of turning surplus
 procedures into controller aborts. RAS fault-path diagnostics do **not** use
-this slot: they travel in a small dedicated `K_MSGQ` (`common/cs_initiator.c:62`,
+this slot: they travel in a small dedicated `K_MSGQ` (`common/cs_initiator.c:60`,
 depth 4) so a queued diagnostic cannot make the next procedure fail its claim;
 queue overflow is bounded and counted (`g_diagnostic_drops`, LOG_WRN on the
 first drop and every 128th).
@@ -457,13 +462,13 @@ first drop and every 128th).
 `common/cs_initiator.c:33`) is the only semaphore the main loop waits on. In
 both modes it means "consumer work is pending": the RX thread gives it after
 publishing an event pair via `cs_initiator_publish_event_pair()`
-(`common/cs_initiator.c:212`) or queueing a diagnostic via
-`cs_initiator_queue_log_message()` (`:234`), and the main loop's
+(`common/cs_initiator.c:223`) or queueing a diagnostic via
+`cs_initiator_queue_log_message()` (`:244`), and the main loop's
 `cs_initiator_consume_pending_event()` takes it, drains the diagnostic queue,
 and processes any pending event pair. Empty/aborted procedures and failed
 handoff claims do **not** give it — there is nothing to consume.
 
-**The main loop** (`initiator/src/main.c:349-356`, end of `main()`) is the
+**The main loop** (`initiator/src/main.c:350-356`, end of `main()`) is the
 serialize consumer for both modes:
 
 ```c
@@ -501,7 +506,7 @@ this repo reads `ant-gpios` (see
 
 The one devicetree-controlled app behaviour is the optional RF-switch supply:
 when a board overlay defines `rf-switch-supply-gpios` on the `zephyr,user`
-node, `initiator/src/main.c:282-295` drives it with `GPIO_OUTPUT_ACTIVE` at
+node, `initiator/src/main.c:283-296` drives it with `GPIO_OUTPUT_ACTIVE` at
 boot; boards without the property compile the block out. The port and pin are
 entirely board-owned — no model-specific assignment lives in shared code.
 
