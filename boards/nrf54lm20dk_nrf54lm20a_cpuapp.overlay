@@ -1,0 +1,25 @@
+/*
+ * Copyright (c) 2026 Metirionic
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
+ * nRF54LM20-DK: the COBS ranging stream goes to VCOM0 (uart30) and the
+ * console stays on the board-default VCOM1 (uart20) at 115200 baud.
+ *
+ * The DK's J-Link VCOM bridge supports up to 1 Mbps but not 921600, so the
+ * stream runs at 1,000,000 baud. 8N1 and no flow control are the UART
+ * defaults; the board definition already supplies uart30's pinctrl.
+ */
+
+/ {
+	chosen {
+		cobs-uart = &uart30;
+	};
+};
+
+&uart30 {
+	status = "okay";
+	current-speed = <1000000>;
+};
