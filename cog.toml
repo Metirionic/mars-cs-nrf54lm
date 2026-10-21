@@ -1,0 +1,25 @@
+from_latest_tag = true
+ignore_merge_commits = true
+ignore_fixup_commits = true
+tag_prefix = "v"
+branch_whitelist = ["main"]
+
+pre_bump_hooks = []
+post_bump_hooks = []
+
+[git_hooks]
+
+[commit_types]
+chore = { omit_from_changelog = true }
+ci = { omit_from_changelog = true }
+test = { omit_from_changelog = true }
+
+[changelog]
+path = "CHANGELOG.md"
+template = "ci/changelog-remote.tera"
+remote = "github.com"
+owner = "Metirionic"
+repository = "mars-cs-nrf54lm"
+authors = []
+
+[bump_profiles]

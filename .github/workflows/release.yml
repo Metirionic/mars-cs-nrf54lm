@@ -1,0 +1,270 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and release (e.g. v1.5.1)'
+        required: true
+        type: string
+
+jobs:
+  version-bump:
+    name: Version bump
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      bump_needed: ${{ steps.check.outputs.bump_needed }}
+      tag: ${{ steps.tag.outputs.tag || github.event.inputs.tag }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install cocogitto
+        uses: cocogitto/cocogitto-action@main
+        with:
+          install-only: true
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for version bump
+        id: check
+        run: |
+          # `cog bump --auto --dry-run` exits 0 for BOTH the no-bump and the
+          # bump cases, so the exit code is uninformative. The bump path
+          # prints a bare semver tag to stdout (documented and test-asserted
+          # upstream); the no-bump path prints prose. Gate on the tag shape,
+          # scanned on stdout only, so neither a future reword of the no-bump
+          # prose nor any stderr noise can move the gate.
+          cog_err="$(mktemp)"
+          if ! cog_out="$(cog bump --auto --dry-run 2>"$cog_err")"; then
+            echo "::group::cog bump --auto --dry-run output (failed)"
+            printf '%s\n' "$cog_out"
+            cat "$cog_err"
+            echo "::endgroup::"
+            echo "::error::cog bump --auto --dry-run failed - see output above"
+            rm -f "$cog_err"
+            exit 1
+          fi
+          echo "::group::cog bump --auto --dry-run output"
+          printf '%s\n' "$cog_out"
+          cat "$cog_err"
+          echo "::endgroup::"
+          rm -f "$cog_err"
+          if printf '%s' "$cog_out" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "bump_needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bump_needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Semver release
+        if: steps.check.outputs.bump_needed == 'true'
+        run: cog bump --auto
+
+      - name: Push version bump commit and tags
+        if: steps.check.outputs.bump_needed == 'true'
+        run: |
+          git push
+          git push --tags
+
+      - name: Get new tag
+        if: steps.check.outputs.bump_needed == 'true'
+        id: tag
+        run: echo "tag=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+
+  detect-presets:
+    name: Detect build presets
+    needs: version-bump
+    if: always()
+    runs-on: ubuntu-latest
+    outputs:
+      initiator: ${{ steps.count.outputs.initiator }}
+      reflector: ${{ steps.count.outputs.reflector }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}
+      - name: Count configurePresets per role
+        id: count
+        # The build job below is skipped while the preset matrix is empty (the
+        # pre-board scaffold state), so a release is not attempted without
+        # firmware to package. The preset count is read from the ref being
+        # released, not from the default branch.
+        run: |
+          for app in initiator reflector; do
+            n="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("configurePresets", [])))' "$app/CMakePresets.json")"
+            echo "${app}=${n}" >> "$GITHUB_OUTPUT"
+            echo "${app}: ${n} preset(s)"
+          done
+
+  build:
+    name: Build firmware
+    needs: [version-bump, detect-presets]
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.version-bump.outputs.bump_needed == 'true') && needs.detect-presets.outputs.initiator != '0' && needs.detect-presets.outputs.reflector != '0'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:${{ vars.NCS_VERSION }}
+    env:
+      NCS_DIR: ${{ github.workspace }}
+      NCS_VERSION: ${{ vars.NCS_VERSION }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      - name: Verify NCS version
+        run: bash scripts/check-ncs-version.sh
+
+      - name: Install dependencies
+        run: |
+          rm -f /opt/ncs/toolchains/*/usr/lib/x86_64-linux-gnu/libnghttp2.so.14
+          apt-get update && apt-get install -y --no-install-recommends curl zip
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabihf
+
+      - name: Init west workspace
+        run: |
+          west init -l . --mf west.yml
+          west update -o=--depth=1 -n
+
+      - name: Build all firmware
+        run: |
+          # Initiator presets (every preset in initiator/CMakePresets.json)
+          bash ci/build.sh --target initiator --preset "$(bash ci/list-presets.sh initiator)" --release-dir release
+
+          # Reflector presets (every preset in reflector/CMakePresets.json)
+          bash ci/build.sh --target reflector --preset "$(bash ci/list-presets.sh reflector)" --release-dir release
+
+      - name: Package firmware
+        run: zip -j cs-ranging-firmware.zip release/*.hex
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs-ranging-firmware
+          path: cs-ranging-firmware.zip
+
+  release:
+    name: Create GitHub Release
+    needs: [version-bump, build]
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.version-bump.outputs.bump_needed == 'true') && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}
+
+      - name: Prepare per-tag release body
+        id: notes
+        env:
+          TAG: ${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          # A notes file checked in at the tag (.github/release-notes/<tag>.md)
+          # becomes the release body; the GitHub API prepends that body to the
+          # auto-generated "What's Changed" notes (generate_release_notes),
+          # which is how hand-written sections -- known issues, rename
+          # callouts -- land above the PR list. No file for the tag -> no
+          # body_path output -> softprops skips the body entirely.
+          if [ -f ".github/release-notes/${TAG}.md" ]; then
+            echo "path=.github/release-notes/${TAG}.md" >> "$GITHUB_OUTPUT"
+            echo "Per-tag release notes found: .github/release-notes/${TAG}.md"
+          else
+            echo "No .github/release-notes/${TAG}.md; release body is the auto-generated notes only."
+          fi
+
+      - name: Check for existing release
+        id: check_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # softprops/action-gh-release@v2 with generate_release_notes: true
+          # APPENDS a freshly generated "## What's Changed" block to an
+          # existing release body instead of replacing it, so a re-run of this
+          # job for an already-released tag accumulates duplicate blocks.
+          # Detect a pre-existing release for the target tag and gate the
+          # creation step on its absence (or on an empty body, to let a prior
+          # empty-body run recover).
+          #
+          # Branch on the HTTP status of `gh api .../releases/tags/<tag>`,
+          # not on `gh release view`'s stderr prose ("release not found"):
+          # the status code is a stable contract, whereas gh has no
+          # documented not-found exit code and has already diverged that
+          # wording in an adjacent path -- a reworded message would otherwise
+          # make every first-creation run fall through to the fail-closed
+          # branch and block all new releases.
+          TAG="${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}"
+          errfile="$(mktemp)"
+          # Capture the full HTTP response (status line + headers + body).
+          # `|| true` so a 404 (gh api exits 1) does not trip `set -e`.
+          resp="$(gh api "repos/$GH_REPO/releases/tags/$TAG" -i 2>&1)" || true
+          status_line="${resp%%$'\n'*}"
+          case "$status_line" in
+            HTTP/*) status="${status_line#HTTP/* }"; status="${status%% *}";;
+            *) status="";;
+          esac
+          case "$status" in
+            200)
+              if body="$(gh api "repos/$GH_REPO/releases/tags/$TAG" --jq '.body // empty' 2>"$errfile")"; then
+                if [ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+                  echo "exists=true" >> "$GITHUB_OUTPUT"
+                  echo "Release for $TAG already exists with a non-empty body; skipping creation to avoid duplicate 'What's Changed' blocks."
+                else
+                  echo "exists=false" >> "$GITHUB_OUTPUT"
+                  echo "Release for $TAG exists but has an empty body; will populate it."
+                fi
+              else
+                echo "::error::release for $TAG exists (HTTP 200) but body fetch failed:"
+                cat "$errfile"
+                rm -f "$errfile"
+                exit 1
+              fi
+              ;;
+            404)
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              echo "No release for $TAG yet; will create it."
+              ;;
+            *)
+              echo "::error::gh api returned no HTTP status (network/auth failure?) for $TAG:"
+              printf '%s\n' "$resp" | head -20
+              rm -f "$errfile"
+              exit 1
+              ;;
+          esac
+          rm -f "$errfile"
+
+      - name: Download firmware artifact
+        if: steps.check_release.outputs.exists != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: cs-ranging-firmware
+
+      - name: Create GitHub Release
+        if: steps.check_release.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version-bump.outputs.tag || github.event.inputs.tag }}
+          body_path: ${{ steps.notes.outputs.path }}
+          files: cs-ranging-firmware.zip
+          generate_release_notes: true

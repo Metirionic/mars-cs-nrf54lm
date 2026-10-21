@@ -1,0 +1,9 @@
+#
+# Copyright (c) 2024 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: MIT
+#
+
+source "$(APPLICATION_SOURCE_DIR)/../common/Kconfig"
+
+source "Kconfig.zephyr"

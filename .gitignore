@@ -1,0 +1,46 @@
+# Zephyr build directories
+build/
+build_*/
+zephyr/
+modules/
+nrf/
+bootloader/
+nrfxlib/
+
+# Rust/Cargo
+target/
+
+# Firmware binaries
+*.hex
+!release/*.hex
+
+# IDE
+.idea/
+# Track shared VSCode config but ignore user-specific settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# West
+.west/
+
+# Claude
+.claude/
+CLAUDE.md
+
+# Agents
+.agents/
+docs/agents/
+skills-lock.json
+
+# Scratch
+/tmp/
+/.playwright-mcp/

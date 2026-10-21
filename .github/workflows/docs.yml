@@ -1,0 +1,24 @@
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check-docs:
+    name: Docs link & reference check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check internal doc links, artifact name, and preset cross-references
+        # Validates every internal [text](href) link in README.md and docs/*.md
+        # resolves to a tracked file (and a real heading when an #anchor is
+        # present), that the release-artifact name in flash-quickstart.md
+        # matches the archive produced/published by release.yml, and that the
+        # preset names in docs/hardware.md's "### Presets" table match the
+        # configurePresets in initiator/CMakePresets.json and
+        # reflector/CMakePresets.json. The preset-table check is skipped while
+        # both preset arrays are empty (the pre-board scaffold state).
+        # Run locally with `bash scripts/check-docs.sh`.
+        run: bash scripts/check-docs.sh

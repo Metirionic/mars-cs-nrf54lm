@@ -1,0 +1,233 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - uses: pre-commit/action@v3.0.1
+
+  verify-ncs-version:
+    name: Verify NCS version
+    runs-on: ubuntu-latest
+    env:
+      NCS_VERSION: ${{ vars.NCS_VERSION }}
+      # Repo variables aren't passed to pull_request runs from forks (public
+      # repo; the "send vars to fork PRs" toggle is private-repo-only). On fork
+      # PRs vars.NCS_VERSION is empty, so the guard's variable cross-check
+      # can't apply — the script falls back to the west.yml-only literal scan
+      # (its local mode). Pushes and same-repo PRs enforce the full check.
+      ENFORCE_NCS_VAR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    outputs:
+      # The NCS version parsed from west.yml — the value the guard just
+      # verified. Build jobs consume this for the container image tag and cache
+      # keys so they resolve on fork PRs too (vars.NCS_VERSION is withheld there).
+      ncs_version: ${{ steps.check.outputs.ncs_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check NCS version consistency
+        id: check
+        run: bash scripts/check-ncs-version.sh
+
+  detect-presets:
+    name: Detect build presets
+    runs-on: ubuntu-latest
+    outputs:
+      initiator: ${{ steps.count.outputs.initiator }}
+      reflector: ${{ steps.count.outputs.reflector }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Count configurePresets per role
+        id: count
+        # The scaffold state has no board presets. The build jobs below are
+        # gated on these counts and are skipped until the first board support
+        # change adds presets — no workflow edit needed at that point.
+        run: |
+          for app in initiator reflector; do
+            n="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("configurePresets", [])))' "$app/CMakePresets.json")"
+            echo "${app}=${n}" >> "$GITHUB_OUTPUT"
+            echo "${app}: ${n} preset(s)"
+          done
+
+  build-initiator:
+    name: Build initiator
+    needs: [verify-ncs-version, detect-presets]
+    if: needs.detect-presets.outputs.initiator != '0'
+    runs-on: ubuntu-24.04
+    container:
+      # Sourced from west.yml via verify-ncs-version's output (not vars), so
+      # the tag resolves on fork PRs too (vars.NCS_VERSION is withheld there).
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:${{ needs.verify-ncs-version.outputs.ncs_version }}
+    env:
+      NCS_DIR: ${{ github.workspace }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      - name: Install dependencies
+        run: |
+          rm -f /opt/ncs/toolchains/*/usr/lib/x86_64-linux-gnu/libnghttp2.so.14
+          apt-get update && apt-get install -y --no-install-recommends curl
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabihf
+
+      - name: Init west workspace
+        run: |
+          west init -l . --mf west.yml
+          west update -o=--depth=1 -n
+
+      - name: Build initiator (every preset)
+        run: |
+          bash ci/build.sh --target initiator --preset "$(bash ci/list-presets.sh initiator)"
+
+  build-reflector:
+    name: Build reflector
+    needs: [verify-ncs-version, detect-presets]
+    if: needs.detect-presets.outputs.reflector != '0'
+    runs-on: ubuntu-24.04
+    container:
+      # Sourced from west.yml via verify-ncs-version's output (not vars), so
+      # the tag resolves on fork PRs too (vars.NCS_VERSION is withheld there).
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:${{ needs.verify-ncs-version.outputs.ncs_version }}
+    env:
+      NCS_DIR: ${{ github.workspace }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      - name: Install dependencies
+        run: |
+          rm -f /opt/ncs/toolchains/*/usr/lib/x86_64-linux-gnu/libnghttp2.so.14
+          apt-get update && apt-get install -y --no-install-recommends curl
+
+      - name: Init west workspace
+        run: |
+          west init -l . --mf west.yml
+          west update -o=--depth=1 -n
+
+      - name: Build reflector (every preset)
+        run: |
+          bash ci/build.sh --target reflector --preset "$(bash ci/list-presets.sh reflector)"
+
+  onboarding-verification:
+    name: Onboarding verification (clean OS, native toolchain)
+    needs: [verify-ncs-version, detect-presets]
+    if: needs.detect-presets.outputs.initiator != '0' && needs.detect-presets.outputs.reflector != '0'
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install minimal pre-checkout packages
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+
+      - uses: actions/checkout@v4
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Configure workspace env
+        # Use the $GITHUB_WORKSPACE env var (the in-container path, e.g.
+        # /__w/<repo>/<repo>), NOT the ${{ github.workspace }} expression: in
+        # container jobs the expression resolves to the runner host path which
+        # is not valid inside the container, so NCS_DIR would point nowhere.
+        run: |
+          echo "WS_PARENT=$(dirname "$GITHUB_WORKSPACE")" >> "$GITHUB_ENV"
+          echo "NCS_DIR=$GITHUB_WORKSPACE" >> "$GITHUB_ENV"
+
+      - name: Cache Zephyr SDK (ARM-only, no host tools)
+        uses: actions/cache@v4
+        with:
+          path: ~/zephyr-sdk-*
+          key: zephyr-sdk-arm-no-hosttools-${{ hashFiles('west.yml') }}-${{ runner.os }}
+
+      - name: Cache west workspace
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.WS_PARENT }}/.west
+            ${{ env.WS_PARENT }}/nrf
+            ${{ env.WS_PARENT }}/zephyr
+            ${{ env.WS_PARENT }}/nrfxlib
+            ${{ env.WS_PARENT }}/modules
+            ${{ env.WS_PARENT }}/bootloader
+            ${{ env.WS_PARENT }}/test
+            ${{ env.WS_PARENT }}/tools
+          # Hash the install script too: any change to what it clones/installs
+          # (west init/update flags, SDK install, etc.) auto-invalidates the
+          # cache, so no manual version suffix is needed. restore-keys falls
+          # back to the closest prior workspace and install-toolchain.sh re-runs
+          # west update to bring it current (the script is idempotent/resumable).
+          key: ncs-ws-${{ needs.verify-ncs-version.outputs.ncs_version }}-${{ hashFiles('west.yml') }}-${{ hashFiles('scripts/install-toolchain.sh') }}
+          restore-keys: ncs-ws-${{ needs.verify-ncs-version.outputs.ncs_version }}-
+
+      - name: Cache NCS venv
+        uses: actions/cache@v4
+        with:
+          path: ~/.ncs-venv
+          # Bump the `v1` segment whenever the `setuptools<81` constraint in
+          # scripts/install-toolchain.sh (create_venv's bootstrap pip install)
+          # or the venv layout changes, so the cache is rebuilt fresh.
+          key: ncs-venv-${{ needs.verify-ncs-version.outputs.ncs_version }}-v1-${{ runner.os }}-${{ hashFiles('west.yml') }}
+          restore-keys: |
+            ncs-venv-${{ needs.verify-ncs-version.outputs.ncs_version }}-v1-${{ runner.os }}-
+
+      - name: Install native toolchain (documented path)
+        run: bash scripts/install-toolchain.sh --with-rust
+
+      - name: Build reflector (every preset)
+        run: |
+          source "$HOME/.ncs-venv/bin/activate"
+          bash ci/build.sh --target reflector --preset "$(bash ci/list-presets.sh reflector)" --release-dir release
+
+      - name: Upload reflector merged firmware
+        # Upload each target's artifact immediately after its build, so a
+        # failure in the other build (e.g. the initiator's cargo path) cannot
+        # drop an artifact that was built successfully.
+        uses: actions/upload-artifact@v4
+        with:
+          name: reflector-onboarding-merged
+          path: release/reflector_*.hex
+          if-no-files-found: error
+
+      - name: Build initiator (every preset)
+        # The install script provisions rustup into ~/.cargo, but its
+        # `source ~/.cargo/env` does not persist to this step (Actions runs
+        # bash --noprofile --norc), so cargo must be put on PATH here for
+        # CMake -> find_package(mars-bluetooth-hci-rust) -> cargo build.
+        run: |
+          source "$HOME/.ncs-venv/bin/activate"
+          source "$HOME/.cargo/env"
+          bash ci/build.sh --target initiator --preset "$(bash ci/list-presets.sh initiator)" --release-dir release
+
+      - name: Upload initiator merged firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: initiator-onboarding-merged
+          path: release/initiator_*.hex
+          if-no-files-found: error
