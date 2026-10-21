@@ -36,8 +36,11 @@ LOG_MODULE_DECLARE(app_main, LOG_LEVEL_INF);
  */
 #define CHUNK_SIZE 14000u
 
+BUILD_ASSERT((CHUNK_SIZE * 2u + 1000u) == COBS_TX_RUN_MAX_SIZE,
+             "CHUNK_SIZE sizing must match the COBS TX seam's full-run size");
+
 /** @brief TX buffer for COBS-encoded serialized data. Leave margin for log messages. */
-static uint8_t g_serialized[CHUNK_SIZE * 2u + 1000u];
+static uint8_t g_serialized[COBS_TX_RUN_MAX_SIZE];
 /** @brief Total bytes written to g_serialized for the current run. */
 static size_t g_total_written_size = 0u;
 

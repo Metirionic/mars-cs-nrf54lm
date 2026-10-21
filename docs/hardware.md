@@ -15,6 +15,11 @@ API.
 |-------|--------------|-------------|---------|
 | nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | VCOM0 (`uart30`), 1,000,000 baud, 8N1, no flow control | VCOM1 (`uart20`), 115200 baud |
 
+The `nrf54lm20dk_usb_*` presets replace both VCOM ports with the native USB
+controller (USBHS): the initiator is a two-function composite CDC ACM device
+whose first function carries the COBS stream and whose second function carries
+the console. See the [preset table](#presets).
+
 The DK is built as the **A** variant (`nRF54LM20A`), the NPU-less variant
 **built for** the B-silicon DK (`SOC_NRF54LM20A_DEVELOP_IN_NRF54LM20B`; both
 bench DKs report `nRF54LM20A ENGA`). The A-only target is deliberate.
@@ -70,6 +75,12 @@ firmware sources stay board-agnostic; a board support change consists of:
      The initiator drives it with `GPIO_OUTPUT_ACTIVE` at boot
      (`initiator/src/main.c`). Boards without the property skip the code
      entirely.
+   - For a native USB transport, a role-specific USB overlay
+     (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay. It
+     declares the CDC ACM functions under `&zephyr_udc0` in interface order
+     (initiator: data first via the `cobs-uart` chosen node, console second via
+     `zephyr,console`), sets the console chosen nodes to the console function,
+     and disables the UART nodes the USB build does not use.
 2. **An optional board `.conf` fragment** in `boards/` for board-level
    Kconfig — typically the RTT console backend:
    ```
@@ -78,6 +89,10 @@ firmware sources stay board-agnostic; a board support change consists of:
    CONFIG_RTT_CONSOLE=y
    CONFIG_UART_CONSOLE=n
    ```
+   A native USB transport adds a role/transport fragment
+   (`boards/nrf54lm20dk_usb_initiator.conf` on the DK) that sets
+   `CONFIG_MARS_CS_TRANSPORT_USB`, the role symbol, the USB stack and CDC ACM
+   options, and deferred logging.
 3. **Presets** in `initiator/CMakePresets.json` and
    `reflector/CMakePresets.json`, setting `BOARD`, `CONF_FILE`,
    `EXTRA_CONF_FILE`, `DTC_OVERLAY_FILE`, and the preset-local `binaryDir`.
@@ -140,11 +155,19 @@ The nRF54LM20-DK presets live in `initiator/CMakePresets.json` and
 | `nrf54lm20dk_cent_a1_1_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
 | `nrf54lm20dk_peri_a1_1` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/1_path_1_local.conf` | A1 / 1-path |
 | `nrf54lm20dk_peri_a1_1_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_usb_cent_a1_1` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_usb_cent_a1_1_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
 
-Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
-suffix for IPT. Note the deliberate naming asymmetry:
+Preset names follow `<board>[_usb]_<cent|peri>_a<antennas>_<paths>`, with an
+`_ipt` suffix for IPT. The initiator's native USB presets insert a `usb` transport
+token after the board name (`nrf54lm20dk_usb_cent_a1_1`); their overlay
+declares two CDC ACM functions in interface order — data first (chosen
+`cobs-uart`), console second (chosen `zephyr,console`) — and disables the VCOM
+UARTs. They use the USB overlay and
+`boards/nrf54lm20dk_usb_initiator.conf` in place of the VCOM board overlay.
+Note the deliberate naming asymmetry:
 
-- **Preset names** are `<board>_<cent|peri>_a<antennas>_<paths>` — antennas
+- **Preset names** are `<board>[_usb]_<cent|peri>_a<antennas>_<paths>` — antennas
   first, paths second (e.g. `example_cent_a2_4` = A2, 4 paths).
 - **Fragment filenames** are `<paths>_path_<antennas>_local.conf` — paths
   first, antennas second. The two orders are reversed; cross-check carefully.

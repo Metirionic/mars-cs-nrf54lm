@@ -11,6 +11,13 @@ add_library(
   cs_watchdog.c
   subevent.c
   addr_utils.c)
+
+# The USB bring-up module is compiled only for native USB builds, so VCOM builds
+# compile no USB code at all.
+if(CONFIG_MARS_CS_TRANSPORT_USB)
+  target_sources(cs_common PRIVATE mars_usb.c)
+endif()
+
 target_include_directories(cs_common PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cs_common PRIVATE zephyr_interface)
 target_compile_options(

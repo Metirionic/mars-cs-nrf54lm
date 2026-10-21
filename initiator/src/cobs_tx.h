@@ -12,6 +12,16 @@
 #include <zephyr/kernel.h>
 
 /**
+ * @brief Largest complete serialization run the seam accepts.
+ *
+ * Two worst-case serialized events (see CHUNK_SIZE in serialize.c) plus a
+ * standalone log frame and margin. The serializer sizes its run buffer with
+ * this value and the USB backend sizes its full-run ring with it, so a run
+ * can always be enqueued atomically.
+ */
+#define COBS_TX_RUN_MAX_SIZE 29000u
+
+/**
  * @brief Reserve the COBS transmit path for the next serialization run.
  *
  * Waits until the transport can accept a run and the run buffer may be filled
@@ -19,6 +29,10 @@
  * its bytes are overwritten. Must be called before writing into the run
  * buffer; a successful call is either consumed by cobs_tx_write() or given
  * back with cobs_tx_release().
+ *
+ * A backend may impose its own bound even when timeout is K_FOREVER. The USB
+ * backend does, so a stalled host turns into a counted run drop and -EAGAIN
+ * instead of blocking the consumer.
  *
  * @param timeout  Wait limit for the previous run to complete.
  * @return 0 on success, -EAGAIN on timeout, or another negative errno when the

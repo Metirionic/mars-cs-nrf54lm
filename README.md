@@ -48,18 +48,21 @@ RAS-vs-IPT contrast and per-mode data flow.
 ## Presets
 
 Builds are driven by CMake presets in `initiator/CMakePresets.json` and
-`reflector/CMakePresets.json`. The nRF54LM20-DK defines four:
+`reflector/CMakePresets.json`. The nRF54LM20-DK defines six:
 
-| Preset | Role | Mode |
-|--------|------|------|
-| `nrf54lm20dk_cent_a1_1` | Initiator | RAS |
-| `nrf54lm20dk_peri_a1_1` | Reflector | RAS |
-| `nrf54lm20dk_cent_a1_1_ipt` | Initiator | IPT |
-| `nrf54lm20dk_peri_a1_1_ipt` | Reflector | IPT |
+| Preset | Role | Mode | Transport |
+|--------|------|------|-----------|
+| `nrf54lm20dk_cent_a1_1` | Initiator | RAS | J-Link VCOM |
+| `nrf54lm20dk_peri_a1_1` | Reflector | RAS | J-Link VCOM |
+| `nrf54lm20dk_cent_a1_1_ipt` | Initiator | IPT | J-Link VCOM |
+| `nrf54lm20dk_peri_a1_1_ipt` | Reflector | IPT | J-Link VCOM |
+| `nrf54lm20dk_usb_cent_a1_1` | Initiator | RAS | Native USB |
+| `nrf54lm20dk_usb_cent_a1_1_ipt` | Initiator | IPT | Native USB |
 
 Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
-suffix for IPT: `cent`/`peri` is the BLE role, `a<n>` is the antenna count, and
-the trailing number is the antenna-path count. See
+suffix for IPT and a `usb` transport token after the board name for native USB
+builds: `cent`/`peri` is the BLE role, `a<n>` is the antenna count, and the
+trailing number is the antenna-path count. See
 [docs/hardware.md](docs/hardware.md#presets) for the full preset table and
 [boards/README.md](boards/README.md) for the board-support contract.
 
