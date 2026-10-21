@@ -297,8 +297,8 @@ setup.
    Ranging Service, and the RAS feature read + subscribe — are compiled out
    (`#if !IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)`, `common/cs_initiator.c:616-630`
    and `:646-698`). The CS config is created with
-   `BT_CONN_LE_CS_MAIN_MODE_2_NO_SUB_MODE` and `cs_enhancements_1 = 1` to enable
-   inline PCT transfer (`:725`); `scan_init()` matches the reflector's
+   `BT_CONN_LE_CS_MAIN_MODE_2_NO_SUB_MODE` (`:711`) and `cs_enhancements_1 = 1`
+   (`:725`) to enable inline PCT transfer; `scan_init()` matches the reflector's
    advertised name, not the Ranging Service UUID (`common/ble_scanning.c:86-98`).
 
 2. **Local-only acquisition.** The local CS subevent data arrives the same way —
@@ -465,8 +465,10 @@ publishing an event pair via `cs_initiator_publish_event_pair()`
 (`common/cs_initiator.c:223`) or queueing a diagnostic via
 `cs_initiator_queue_log_message()` (`:244`), and the main loop's
 `cs_initiator_consume_pending_event()` takes it, drains the diagnostic queue,
-and processes any pending event pair. Empty/aborted procedures and failed
-handoff claims do **not** give it — there is nothing to consume.
+and processes any pending event pair. An empty/aborted procedure or failed
+handoff claim gives it only if it queued a diagnostic frame (the RAS fault
+paths do); the IPT empty/aborted path and every failed event-pair claim queue
+nothing.
 
 **The main loop** (`initiator/src/main.c:350-356`, end of `main()`) is the
 serialize consumer for both modes:
