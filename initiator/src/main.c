@@ -8,6 +8,7 @@
  *  @brief Channel Sounding initiator with ranging requester sample
  */
 
+#include <stdarg.h>
 #include <stdio.h>
 #include <zephyr/bluetooth/cs.h>
 #include <zephyr/drivers/gpio.h>
@@ -32,30 +33,55 @@ LOG_MODULE_REGISTER(app_main, LOG_LEVEL_INF);
 /** @brief Saved CS config from config creation callback (used for role in serialization). */
 static struct bt_conn_le_cs_config cs_config;
 
-#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
 /**
- * @brief Process populated subevent events by serializing them over UART COBS.
+ * @brief Process a populated event pair by serializing it over the COBS UART.
  *
- * Called on the main loop thread from cs_initiator_consume_pending_event(); the shared IPT skeleton populates the
- * events on the BT RX thread and hands them over. The blocking serialize + UART TX path must stay off the RX thread,
- * where it would delay the SDC's step-data delivery until the controller aborts the surplus subevents (#173 — numbers
- * in docs/architecture.md).
+ * Called on the main loop thread from cs_initiator_consume_pending_event(); the RX thread only populates the shared
+ * event pair — RAS from ranging_data_cb, IPT from the shared procedure-completion skeleton. The blocking serialize +
+ * UART TX path must stay off the RX thread, where it would delay the SDC's step-data delivery until the controller
+ * aborts the surplus subevents (#173 — numbers in docs/architecture.md).
  */
 static void process_subevent_cb(SubeventResultEvent_t * p_local_event, SubeventResultEvent_t * p_peer_event)
 {
-    /* CS liveness watchdog (#116): the skeleton hands over completed procedures with step data, and this thread
+#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
+    /* CS liveness watchdog (#116): the IPT skeleton hands over completed procedures with step data, and this thread
      * consumes them at the wire rate — so the pet paces at the consume rate, not the completion rate, and holds the
-     * link while the wire keeps up (see #173). */
+     * link while the wire keeps up (see #173). RAS keeps its v0.1.0 pet on the completion signal itself, in
+     * ranging_data_cb, so a transport stall cannot turn into a watchdog recovery it did not have before. */
     cs_watchdog_pet();
+#endif
 
     serialize_run(p_local_event, p_peer_event);
 }
-#else
+
+#if !IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
+/** @brief Emit a diagnostic message queued by the RX thread (consumer thread). */
+static void process_log_cb(const char * p_message)
+{
+    (void)serialize_send_log_message(p_message);
+}
+
+/** @brief Queue a formatted COBS diagnostic frame for the consumer thread. */
+static void queue_diagnostic(const char * p_format, ...)
+{
+    char    msg[64];
+    va_list args;
+
+    va_start(args, p_format);
+    vsnprintf(msg, sizeof(msg), p_format, args);
+    va_end(args);
+
+    (void)cs_initiator_queue_log_message(msg);
+}
+
 /**
  * @brief Callback for ranging data received from peer (realtime or on-demand).
  *
- * Checks counter match, validates step data, populates SubeventResultEvents
- * via subevent_populate, serializes via UART COBS, and signals the main loop.
+ * Checks counter match, validates step data, populates the shared
+ * SubeventResultEvents via subevent_populate, and hands them to the consumer
+ * thread, which serializes and transmits — no serialize or transmit work runs
+ * in this RX callback (#15). Fault-path diagnostics are queued for the same
+ * consumer through cs_initiator_queue_log_message().
  */
 static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, int err)
 {
@@ -66,10 +92,7 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
         LOG_ERR("Error when receiving ranging data with ranging counter %d (err %d)", ranging_counter, err);
         /* Fault-path diagnostic: make the stall trigger visible on the COBS
          * UART — the host's only window into the initiator. */
-        char msg[64];
-
-        snprintf(msg, sizeof(msg), "RD error: counter %u, err %d", ranging_counter, err);
-        (void)serialize_send_log_message(msg);
+        queue_diagnostic("RD error: counter %u, err %d", ranging_counter, err);
 
         /* Mirror the mismatch/aborted recovery below: the sem was taken at
          * the new-procedure gate in cs_initiator.c, and without this give
@@ -96,10 +119,7 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
             ranging_counter,
             local_ranging_counter);
 
-        char msg[64];
-
-        snprintf(msg, sizeof(msg), "RD dropped: peer %u, local %u", ranging_counter, local_ranging_counter);
-        (void)serialize_send_log_message(msg);
+        queue_diagnostic("RD dropped: peer %u, local %u", ranging_counter, local_ranging_counter);
 
         net_buf_simple_reset(cs_initiator_get_local_steps());
 
@@ -120,10 +140,7 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
     {
         LOG_WRN("All subevents in ranging counter %u were aborted", local_ranging_counter);
 
-        char msg[64];
-
-        snprintf(msg, sizeof(msg), "All subevents aborted: counter %u", local_ranging_counter);
-        (void)serialize_send_log_message(msg);
+        queue_diagnostic("All subevents aborted: counter %u", local_ranging_counter);
 
         net_buf_simple_reset(latest_local_steps);
         cs_initiator_give_sem_local_steps();
@@ -136,23 +153,35 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
     }
 
     /* CS liveness watchdog (#116): this is the "completed procedure with step
-     * data" signal. The len==0 branch above deliberately does NOT pet — during
-     * the abort-storm RDs keep arriving at 5/s but never reach this point. */
+     * data" signal, kept on the RX thread at the completion rate exactly as
+     * before the consumer-thread handoff — a transport stall must not add
+     * watchdog recoveries the baseline did not have. The len==0 branch above
+     * deliberately does NOT pet — during the abort-storm RDs keep arriving at
+     * 5/s but never reach this point. */
     cs_watchdog_pet();
 
-    static SubeventResultEvent_t local_event;
-    static SubeventResultEvent_t peer_event;
+    /* The RX thread only populates and publishes the shared event pair; the
+     * consumer thread runs the blocking serialize + TX (see
+     * process_subevent_cb). The len==0 branch above deliberately does not
+     * publish — there is nothing to consume. */
+    SubeventResultEvent_t * p_local_event;
+    SubeventResultEvent_t * p_peer_event;
 
-    subevent_populate(&local_event,
-                      &peer_event,
-                      cs_initiator_get_local_mac(),
-                      cs_initiator_get_peer_mac(),
-                      cs_initiator_get_latest_subevent_header(),
-                      latest_local_steps,
-                      cs_initiator_get_peer_steps(),
-                      cs_config.role);
+    if (cs_initiator_claim_event_pair(&p_local_event, &p_peer_event))
+    {
+        subevent_populate(p_local_event,
+                          p_peer_event,
+                          cs_initiator_get_local_mac(),
+                          cs_initiator_get_peer_mac(),
+                          cs_initiator_get_latest_subevent_header(),
+                          latest_local_steps,
+                          cs_initiator_get_peer_steps(),
+                          cs_config.role);
 
-    serialize_run(&local_event, &peer_event);
+        cs_initiator_publish_event_pair();
+    }
+    /* else: the consumer is still busy with the previous item; the claim
+     * counted the dropped procedure. */
 
     net_buf_simple_reset(latest_local_steps);
 
@@ -162,7 +191,6 @@ static void ranging_data_cb(struct bt_conn * p_conn, uint16_t ranging_counter, i
     }
 
     cs_initiator_give_sem_local_steps();
-    cs_initiator_give_sem_data_ready();
 }
 
 /** @brief Callback for RAS "data ready" — requests on-demand ranging data from peer. */
@@ -279,9 +307,12 @@ int main(void)
      * with step data pets it, so the handshake never false-triggers it. */
     cs_watchdog_init(cs_watchdog_recovery_cb);
 
-#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
+    /* Both modes populate on the RX thread and serialize on this thread: RAS
+     * from ranging_data_cb, IPT from the shared procedure-completion skeleton. */
     cs_initiator_set_process_subevent_cb(process_subevent_cb);
-#else
+#if !IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
+    /* RAS fault-path diagnostics are the only log frames queued through the handoff. */
+    cs_initiator_set_process_log_cb(process_log_cb);
     cs_initiator_set_ranging_data_cb(ranging_data_cb);
     cs_initiator_set_ranging_data_ready_cb(ranging_data_ready_cb);
 #endif
@@ -317,14 +348,10 @@ int main(void)
 
     while (true)
     {
-#if IS_ENABLED(CONFIG_MARS_CS_INLINE_PCT)
-        /* IPT: this thread is the serialize consumer — this call runs the process callback on the next event pair the
-         * skeleton handed over (see process_subevent_cb and docs/architecture.md for why this must stay off the BT RX
-         * thread; #173). */
+        /* RAS and IPT: this thread is the serialize consumer — this call runs the process callback on the next item
+         * the RX thread handed over (see process_subevent_cb and docs/architecture.md for why this must stay off the
+         * BT RX thread; #173). */
         cs_initiator_consume_pending_event();
-#else
-        cs_initiator_take_sem_data_ready();
-#endif
     }
 
     return 0;

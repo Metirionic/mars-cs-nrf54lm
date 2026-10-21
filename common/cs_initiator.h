@@ -133,24 +133,71 @@ typedef void (*cs_initiator_ranging_data_ready_cb)(struct bt_conn * p_conn, uint
 typedef void (*cs_initiator_config_created_cb)(struct bt_conn_le_cs_config * p_config);
 
 /**
- * @brief Callback type for processing populated SubeventResultEvents (IPT mode).
+ * @brief Callback type for processing populated SubeventResultEvents.
  *
- * Called from the shared IPT procedure-completion skeleton in cs_initiator.c
- * after the local and peer events have been populated via
- * subevent_populate_inline(). The app does its work here — serialize over
- * UART (COBS initiator), feed into a ranging flow, or nothing (the main loop
- * does the ranging). Called only on a successful, non-empty procedure.
+ * Called on the consumer thread by cs_initiator_consume_pending_event() after
+ * the RX thread has populated the shared event pair — RAS: from the
+ * ranging-data callback; IPT: from the shared procedure-completion skeleton.
+ * The app does its blocking work here — serialize and transmit over the COBS
+ * TX seam — never on the BT RX thread. Called only on a successful,
+ * non-empty procedure.
  *
  * @param p_local_event  Populated initiator SubeventResultEvent.
- * @param p_peer_event   Populated reflector SubeventResultEvent (identity PCT).
+ * @param p_peer_event   Populated reflector SubeventResultEvent.
  */
 typedef void (*cs_initiator_process_subevent_cb)(SubeventResultEvent_t * p_local_event,
                                                  SubeventResultEvent_t * p_peer_event);
+
+/**
+ * @brief Callback type for a diagnostic log message queued by the RX thread.
+ *
+ * RAS fault-path diagnostics are queued by the RX thread and emitted on the
+ * consumer thread, so the RX thread never serializes or transmits.
+ *
+ * @param p_message  NUL-terminated message to serialize and transmit.
+ */
+typedef void (*cs_initiator_process_log_cb)(const char * p_message);
+
+/**
+ * @brief Claim the RX-thread → consumer-thread handoff slot for an event pair.
+ *
+ * The slot is one static event pair shared by RAS and IPT. The RX thread
+ * fills the claimed pair and publishes it with
+ * cs_initiator_publish_event_pair(). A failed claim means the consumer thread
+ * is still working on the previous item: the procedure must be dropped, and
+ * the drop is counted and reported (LOG_WRN on the first drop and every
+ * 128th).
+ *
+ * @param pp_local_event  Output: local event to populate (set on success).
+ * @param pp_peer_event   Output: peer event to populate (set on success).
+ * @return true when the pair was claimed, false when the consumer is busy.
+ */
+bool cs_initiator_claim_event_pair(SubeventResultEvent_t ** pp_local_event, SubeventResultEvent_t ** pp_peer_event);
+
+/** @brief Publish the event pair claimed above to the consumer thread. */
+void cs_initiator_publish_event_pair(void);
+
+/**
+ * @brief Queue a diagnostic log message for the consumer thread.
+ *
+ * Fault-path diagnostics (RAS ranging-data errors, dropped or empty
+ * procedures) must not serialize or transmit on the RX thread. They go into a
+ * small dedicated queue drained by cs_initiator_consume_pending_event(); the
+ * queue is separate from the event-pair handoff so a queued diagnostic cannot
+ * make the next completed procedure fail its claim. When the queue is full
+ * the message is dropped, counted, and reported (LOG_WRN on the first drop and
+ * every 128th).
+ *
+ * @param p_message  NUL-terminated message (copied before return).
+ * @return true when queued, false when the queue is full.
+ */
+bool cs_initiator_queue_log_message(const char * p_message);
 
 void                                   cs_initiator_set_ranging_data_cb(cs_initiator_ranging_data_cb cb);
 void                                   cs_initiator_set_ranging_data_ready_cb(cs_initiator_ranging_data_ready_cb cb);
 void                                   cs_initiator_set_config_created_cb(cs_initiator_config_created_cb cb);
 void                                   cs_initiator_set_process_subevent_cb(cs_initiator_process_subevent_cb cb);
+void                                   cs_initiator_set_process_log_cb(cs_initiator_process_log_cb cb);
 int                                    cs_initiator_start(const struct cs_initiator_config * p_config);
 struct bt_conn *                       cs_initiator_get_connection(void);
 uint32_t                               cs_initiator_get_ras_feature_bits(void);
@@ -161,17 +208,15 @@ struct net_buf_simple *                cs_initiator_get_peer_steps(void);
 int32_t                                cs_initiator_get_local_ranging_counter(void);
 struct bt_conn_le_cs_subevent_result * cs_initiator_get_latest_subevent_header(void);
 void                                   cs_initiator_give_sem_local_steps(void);
-void                                   cs_initiator_give_sem_data_ready(void);
-void                                   cs_initiator_take_sem_data_ready(void);
-#if defined(CONFIG_MARS_CS_INLINE_PCT)
-/** @brief Consume the pending IPT event pair on the caller's thread (IPT only).
+
+/** @brief Consume pending work on the caller's thread (RAS and IPT).
  *
- * The main loop calls this in place of cs_initiator_take_sem_data_ready():
- * it blocks until the RX thread has populated a completed procedure's events,
- * runs the app's process callback (serialize + UART TX), and releases the
- * event handoff. Keeps the blocking serialize path off the BT RX thread (#173).
+ * The main loop calls this as its only wait: it blocks until the RX thread
+ * has published an event pair or queued a diagnostic log message, drains the
+ * diagnostic queue, runs the app's process callback on a pending event pair
+ * (serialize + COBS TX), and releases the handoff slot. Keeps the blocking
+ * serialize path off the BT RX thread (#173).
  */
 void cs_initiator_consume_pending_event(void);
-#endif  // defined(CONFIG_MARS_CS_INLINE_PCT)
 
 #endif  // CS_INITIATOR_H
