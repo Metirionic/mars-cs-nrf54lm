@@ -215,7 +215,7 @@ End-to-end on the initiator:
    `config_create_hook` (`initiator/src/main.c:220`).
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:355`, defined at
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:356`, defined at
    `common/cs_initiator.c:263`), which waits on `sem_data_ready`, drains any
    queued diagnostic frames (each via `process_log_cb` →
    `serialize_send_log_message()`), runs the app's `process_subevent_cb` →
@@ -340,7 +340,7 @@ setup.
      (`common/cs_initiator.c:480-490`), mirroring the RAS error path.
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:355`, defined at
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:356`, defined at
    `common/cs_initiator.c:263-288`), which waits on `sem_data_ready` (`:265`),
    drains any queued diagnostics, runs the app's `process_subevent_cb` →
    `cs_watchdog_pet()` + `serialize_run()` on the **main loop thread**, then
@@ -470,7 +470,7 @@ handoff claim gives it only if it queued a diagnostic frame (the RAS fault
 paths do); the IPT empty/aborted path and every failed event-pair claim queue
 nothing.
 
-**The main loop** (`initiator/src/main.c:350-356`, end of `main()`) is the
+**The main loop** (`initiator/src/main.c:351-357`, end of `main()`) is the
 serialize consumer for both modes:
 
 ```c
@@ -595,7 +595,11 @@ IPT table above). The antenna/path counts themselves come from the
   back in the RX thread would starve the SDC's step-data delivery and turn
   surplus procedures into controller aborts (the ~70 % empty completions of
   #173). Keep this in mind before changing the serialize path or the procedure
-  cadence.
+  cadence. The cadence itself is build-time Kconfig:
+  `CONFIG_MARS_CS_PROCEDURE_INTERVAL` (`initiator/Kconfig`, default 10) sets
+  both the minimum and maximum procedure interval; the bench builds it at 1 for
+  the transport-headroom run (see
+  [docs/build-from-source.md](build-from-source.md#bench-cadence-override-procedure-interval)).
 - **`mars_bluetooth_hci.h` is checked into the crate, not regenerated during the
   firmware build.** The crate's CMake runs only `cargo build --lib`, not the
   header-generator bin, so the firmware consumes the pre-generated header.

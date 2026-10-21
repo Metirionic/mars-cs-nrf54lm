@@ -117,6 +117,37 @@ directory "<new_app_dir>" was specified; please clean it, use --pristine, or
 use --build-dir to set another build directory
 ```
 
+### Bench cadence override (procedure interval)
+
+The initiator's CS procedure cadence is set at build time by
+`CONFIG_MARS_CS_PROCEDURE_INTERVAL` (`initiator/Kconfig`), which feeds both the
+minimum and maximum procedure interval handed to the controller. It defaults
+to `10`, so the commands above need no extra flags.
+
+The bench's transport-headroom run builds it at `1` — requesting one procedure
+per connection event — so the COBS transport, rather than the procedure
+scheduler, is the limiting factor. The controller applies its own minimum
+(the SDC on the nRF54LM20-DK reports `procedure interval: 2`), which still
+tightens the cadence about fivefold against the default. Build it into a
+separate build directory so the preset build stays at the default:
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_cent_a1_1_interval1 \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/1_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE=../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay \
+  -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+```
+
+Confirm the override landed in the generated configuration
+(`initiator/build_nrf54lm20dk_cent_a1_1_interval1/initiator/zephyr/.config`
+contains `CONFIG_MARS_CS_PROCEDURE_INTERVAL=1`). The initiator console then
+reports the controller's applied interval when CS procedures are enabled
+(`procedure interval: 2` on the DK, versus `10` at the default). This is a
+bench lever only — there is no runtime command surface, and release builds
+keep the default.
+
 ### Multiple presets (driven like CI)
 
 `--preset` accepts a comma-separated list, and `--release-dir` collects each

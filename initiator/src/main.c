@@ -326,8 +326,9 @@ int main(void)
          * It supersedes the prior RAS-only defaults (procedure_phy=1M,
          * min/max_procedure_interval=20/50, max_procedure_len=1000); any
          * RAS fixture/calibration/range baseline assuming those must be
-         * re-baselined. Values match the Nordic ras_initiator sample:
-         * procedure_interval=10.
+         * re-baselined. The interval is CONFIG_MARS_CS_PROCEDURE_INTERVAL
+         * (default 10, matching the Nordic ras_initiator sample); the bench
+         * sets it to 1 for the transport-headroom run.
          * The subevent length and connection interval are computed
          * dynamically in cs_initiator_start from the negotiated config
          * timings, channel map, and antenna paths; the connect-time
@@ -336,8 +337,8 @@ int main(void)
          */
         .cs_sync_phy            = BT_CONN_LE_CS_SYNC_1M_PHY,
         .procedure_phy          = BT_LE_CS_PROCEDURE_PHY_2M,
-        .min_procedure_interval = 10,
-        .max_procedure_interval = 10,
+        .min_procedure_interval = CONFIG_MARS_CS_PROCEDURE_INTERVAL,
+        .max_procedure_interval = CONFIG_MARS_CS_PROCEDURE_INTERVAL,
     };
 
     err = cs_initiator_start(&config);
