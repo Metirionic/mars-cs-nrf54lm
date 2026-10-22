@@ -99,10 +99,12 @@ links between the [README](../README.md) and the guides in `docs/` (this one
 included), so a renamed or moved guide is caught before a user hits a dead
 link; confirms the release-artifact name in
 [docs/flash-quickstart.md](flash-quickstart.md) matches the archive
-[release.yml](../.github/workflows/release.yml) produces; and cross-checks the
+[release.yml](../.github/workflows/release.yml) produces; cross-checks the
 preset names in the docs table against the `configurePresets` in
-`initiator/CMakePresets.json` and `reflector/CMakePresets.json`. Run it locally
-with `bash scripts/check-docs.sh`.
+`initiator/CMakePresets.json` and `reflector/CMakePresets.json`; and confirms
+[docs/flash-quickstart.md](flash-quickstart.md) names every image the preset
+enumeration puts in the release archive. Run it locally with
+`bash scripts/check-docs.sh`.
 
 There is no `.github/pull_request_template.md`, no `CODEOWNERS`, and no in-repo
 branch-protection hint — a PR is simply a branch opened against `main` with all

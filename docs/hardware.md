@@ -11,16 +11,15 @@ API.
 
 ## Supported boards
 
-| Board | Build target | COBS stream | Console |
-|-------|--------------|-------------|---------|
-| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | VCOM0 (`uart30`), 1,000,000 baud, 8N1, no flow control | VCOM1 (`uart20`), 115200 baud |
+| Board | Build target | Transport | COBS data | Console |
+|-------|--------------|-----------|-----------|---------|
+| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | J-Link VCOM (compatibility) | VCOM0 (`uart30`), 1,000,000 baud, 8N1, no flow control | VCOM1 (`uart20`), 115200 baud |
+| nRF54LM20-DK (`nrf54lm20dk_usb_*` presets) | `nrf54lm20dk/nrf54lm20a/cpuapp` | Native USB (USBHS) | Initiator CDC ACM data function (`if00`, label `CS Data`); the reflector emits no stream | Initiator `if02` (label `Console`); reflector `if00` (label `Console`) |
 
-The `nrf54lm20dk_usb_*` presets move the console from VCOM1 to the native USB
-controller (USBHS). For the initiator, the COBS stream also moves off VCOM0, so
-it enumerates as a two-function composite CDC ACM device whose first function
-carries the COBS stream and whose second function carries the console; the
-reflector exposes a single CDC ACM console function (it emits no COBS stream).
-See the [preset table](#presets).
+The `nrf54lm20dk_usb_*` presets move the initiator's COBS stream and both
+roles' consoles off the onboard debugger onto the native USB controller
+(USBHS). See [Native USB transport](#native-usb-transport) for the link,
+power, identity, and NCS constraints, and the [preset table](#presets).
 
 The DK is built as the **A** variant (`nRF54LM20A`), the NPU-less variant
 **built for** the B-silicon DK (`SOC_NRF54LM20A_DEVELOP_IN_NRF54LM20B`; both
@@ -42,6 +41,104 @@ bench DKs report `nRF54LM20A ENGA`). The A-only target is deliberate.
   deliberately omits both `cs_antenna_switch` and `rf-switch-supply-gpios`.
   The upstream sample's antenna-switch pins (P1.17–P1.20) collide with the
   console UART/LFXO on this board — do not copy them.
+
+## Native USB transport
+
+The four `nrf54lm20dk_usb_*` presets route the initiator's COBS ranging stream
+and both roles' consoles over the nRF54LM20 USB 2.0 High-Speed device
+controller (USBHS). The transport is chosen at build time by the board layer:
+`CONFIG_MARS_CS_TRANSPORT_USB` is set only by the role-specific USB board
+fragment (`boards/nrf54lm20dk_usb_initiator.conf` or
+`boards/nrf54lm20dk_usb_reflector.conf`), so VCOM builds compile no USB code
+and the shared firmware stays transport-agnostic. The decision and its
+alternatives are recorded in
+[ADR 0001](adr/0001-native-usb-transport.md); the per-board contract is in
+[boards/README.md](../boards/README.md#native-usb-transport).
+
+### Device and host interface
+
+- **Initiator** — a two-function composite CDC ACM device, functions in
+  interface order: **data first** (chosen `cobs-uart`, interface `if00`,
+  interface string `CS Data`, 32 KiB TX FIFO) and **console second** (chosen
+  `zephyr,console`, interface `if02`, interface string `Console`, 1 KiB
+  best-effort TX ring). The order is load-bearing: the USB COBS backend
+  asserts it, and it is what produces the host's `-if00` data and `-if02`
+  console names. The data port streams on enumeration (no DTR gate); its
+  receive path is not enabled. The console is output-only.
+- **Reflector** — a single CDC ACM console function (interface `if00`,
+  interface string `Console`). It has no `cobs-uart` chosen node because the
+  role emits no COBS stream.
+- The shared `common/mars_usb` module owns the device context, descriptors,
+  class registration, and VBUS policy. Identity is Nordic development VID
+  `0x1915` with PID `0x0001` (initiator) / `0x0002` (reflector), product
+  strings `Mars CS Initiator` / `Mars CS Reflector`, manufacturer
+  `Metirionic`, bus-powered at 500 mA, and a serial number derived from the
+  SoC's unique device ID via `HWINFO`. The serial gives two identical DKs
+  distinct, stable by-id names. A USB-IF VID/PID remains pre-product work.
+- CDC ACM is driver-free on Linux, Windows, and macOS, so the host sees
+  ordinary serial ports and the COBS tooling and wire format are unchanged.
+  Host port identification is in
+  [docs/flash-quickstart.md](flash-quickstart.md#3-identify-the-ports).
+
+### Link speed
+
+- The device exposes both a high-speed (480 Mbit/s) and a full-speed
+  (12 Mbit/s) configuration and lets the host choose.
+  `CONFIG_USBD_MAX_SPEED_HIGH=y` keeps high speed enabled.
+- **High speed is the required link for the transport-headroom criterion** —
+  the reason to move off the J-Link bridge. The bench negotiates 480 Mbit/s on
+  the DK.
+- **Full speed is a supported fallback but parity-only**: it carries the same
+  data and console correctly, but the transport-headroom criterion is defined
+  at high speed, so a full-speed run does not meet it. The bench harness fails
+  a USB run that does not negotiate 480 Mbit/s rather than letting a
+  full-speed-only host pass silently.
+- High-speed USB support is described by Nordic as experimental in NCS
+  v3.4.0; it was measured working on the DK.
+
+### Power and the onboard debugger
+
+- One native USB cable per DK carries **data, console, and power**. The board
+  is bus-powered and declares 500 mA.
+- The J-Link/ODB stays the **SWD programming and debugging path only**. With a
+  native USB image the ODB cable can be disconnected at runtime. The #13
+  bring-up measured this: with the ODB cable removed, the device stayed
+  enumerated at 480 Mbit/s and data and console continued.
+- There is no USB bootloader or DFU interface and MCUboot is not used, so
+  programming and recovery remain SWD-only. The USBHS controller is
+  device-only; USB host mode is not available.
+
+### NCS constraints and known limitations
+
+- **NCSDK-38624** — CDC ACM serial initialization at boot can hang an
+  nRF54LM20 until the USB cable is disconnected. The design avoids the path:
+  `CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT=n`, and the UDC is enabled on the
+  VBUS-ready message, never at boot. This is avoidance, not a fix.
+- **DRGN-29129** — USB high speed uses HFCLK24M, which MPSL also owns.
+  `mars_usb_init()` runs after `bt_enable()` in both applications to keep the
+  MPSL initialization order safe.
+- **DRGN-29277 (deferred)** — the sleep-current workaround after USB
+  disconnect is not part of this change. HFCLK24M remains active while USB is
+  in use, so sleep-current targets need the follow-up power-management work.
+- **VBUS removal is designed but not bench-tested** — the UDC disables on the
+  VBUS-removed message (and re-enables on attach) without a reboot, but the
+  release gate exercised boot with no host and a host stall/close, not a
+  literal port-power removal.
+- **The console is best-effort** — its 1 KiB TX ring and the bounded deferred
+  log queue drop under pressure, especially before enumeration. Producers
+  never block on a non-reading host. See
+  [docs/architecture.md](architecture.md#native-usb-bring-up-and-deferred-logging).
+- **Throughput is stack-limited, not link-limited.** The bring-up baseline
+  was 2.34 MB/s on the data function; the 480 Mbit/s link rate is not a
+  throughput promise. The interval-1 release-gate run reached 3.25 Mbit/s
+  (0.68 % of the link) with zero USB transport drops.
+- **The USB stack is kept quiet on the console** (`CONFIG_USBD_LOG_LEVEL_ERR`,
+  `CONFIG_UDC_DRIVER_LOG_LEVEL_ERR`, `CONFIG_USBD_CDC_ACM_LOG_LEVEL_OFF`);
+  per-transfer logging at informational level measurably caps throughput.
+- **Secure application-core only** — TF-M and non-secure-image USB ownership
+  are unverified; the supported builds are the `.../cpuapp` targets.
+- **Windows and macOS coverage is manual** — Linux is the merge and release
+  gate; the other hosts are release smoke tests, not merge gates.
 
 ## Board support contract
 
@@ -78,9 +175,11 @@ firmware sources stay board-agnostic; a board support change consists of:
      (`initiator/src/main.c`). Boards without the property skip the code
      entirely.
    - For a native USB transport, a role-specific USB overlay
-     (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay. It
-     declares the CDC ACM functions under `&zephyr_udc0` in interface order
-     (initiator: data first via the `cobs-uart` chosen node, console second via
+     (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay. The
+     board's controller must be high-speed-capable (see
+     [Native USB transport](#native-usb-transport)). The overlay declares the
+     CDC ACM functions under `&zephyr_udc0` in interface order (initiator:
+     data first via the `cobs-uart` chosen node, console second via
      `zephyr,console`; reflector: the single console function), sets the
      console chosen nodes to the console function, and disables the UART nodes
      the USB build does not use.

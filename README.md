@@ -12,18 +12,27 @@ Channel Sounding needs a pair of boards — one initiator, one reflector. Pick a
 - **Flash prebuilt firmware** — no build step. Download
   `cs-ranging-firmware.zip` from the
   [latest release](https://github.com/Metirionic/mars-cs-nrf54lm/releases),
-  flash two nRF54LM20-DKs, and open the COBS port at 1,000,000 baud. See
-  [docs/flash-quickstart.md](docs/flash-quickstart.md).
+  flash two nRF54LM20-DKs, and open the COBS data port. Native USB is the
+  recommended transport; J-Link VCOM is retained as the compatibility path.
+  See [docs/flash-quickstart.md](docs/flash-quickstart.md).
 - **Build from source** — native toolchain + build. See
   [docs/build-from-source.md](docs/build-from-source.md).
 
 ## Supported boards
 
-The nRF54LM20-DK is supported, built as `nrf54lm20dk/nrf54lm20a/cpuapp`. It
-exposes the COBS ranging stream on VCOM0 (`uart30`, 1,000,000 baud) and the
-console on VCOM1 (`uart20`, 115200 baud). See
-[docs/hardware.md](docs/hardware.md#supported-boards) for the DK wiring notes
-and the board-support contract.
+The nRF54LM20-DK is supported, built as `nrf54lm20dk/nrf54lm20a/cpuapp`, with
+two runtime transports:
+
+- **Native USB (recommended)** — the initiator is a two-function composite
+  CDC ACM device (data on `if00`, console on `if02`) and the reflector exposes
+  a single CDC ACM console. One cable per board carries data, console, and
+  power; the onboard debugger is needed only for SWD programming. See
+  [docs/hardware.md](docs/hardware.md#native-usb-transport).
+- **J-Link VCOM (compatibility)** — the COBS ranging stream on VCOM0
+  (`uart30`, 1,000,000 baud) and the console on VCOM1 (`uart20`, 115200 baud).
+
+See [docs/hardware.md](docs/hardware.md#supported-boards) for the DK wiring
+notes and the board-support contract.
 
 ## Firmware variants
 
@@ -31,7 +40,7 @@ Each build targets a BLE role and a ranging mode.
 
 | Target | Description |
 |--------|-------------|
-| `initiator` | BLE Central that connects to a CS reflector, collects ranging data, and outputs COBS-encoded binary over UART |
+| `initiator` | BLE Central that connects to a CS reflector, collects ranging data, and outputs COBS-encoded binary over the build-selected transport (native USB or VCOM UART) |
 | `reflector` | BLE Peripheral that advertises and responds to CS procedures |
 
 The ranging mode is a build-time choice, set by `CONFIG_MARS_CS_INLINE_PCT`:
@@ -41,9 +50,11 @@ The ranging mode is a build-time choice, set by `CONFIG_MARS_CS_INLINE_PCT`:
 - **IPT** (Inline PCT) — the reflector's phase contribution is embedded in the
   local tones, so the initiator uses its own step data only (no GATT service).
 
-Both modes emit the same COBS-encoded ranging stream over UART. See
-[docs/architecture.md](docs/architecture.md#ranging-data-flow) for the full
-RAS-vs-IPT contrast and per-mode data flow.
+Both modes emit the same COBS-encoded ranging stream over the selected
+transport. See [docs/architecture.md](docs/architecture.md#ranging-data-flow)
+for the full RAS-vs-IPT contrast and per-mode data flow, and
+[docs/architecture.md](docs/architecture.md#native-usb-bring-up-and-deferred-logging)
+for the native USB bring-up and console logging.
 
 ## Presets
 
@@ -61,10 +72,12 @@ Builds are driven by CMake presets in `initiator/CMakePresets.json` and
 | `nrf54lm20dk_usb_cent_a1_1_ipt` | Initiator | IPT | Native USB |
 | `nrf54lm20dk_usb_peri_a1_1_ipt` | Reflector | IPT | Native USB |
 
-Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
-suffix for IPT and a `usb` transport token after the board name for native USB
-builds: `cent`/`peri` is the BLE role, `a<n>` is the antenna count, and the
-trailing number is the antenna-path count. See
+All eight are built by CI and shipped in `cs-ranging-firmware.zip` — four
+VCOM and four native USB images. Preset names follow
+`<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt` suffix for IPT and a
+`usb` transport token after the board name for native USB builds: `cent`/`peri`
+is the BLE role, `a<n>` is the antenna count, and the trailing number is the
+antenna-path count. See
 [docs/hardware.md](docs/hardware.md#presets) for the full preset table and
 [boards/README.md](boards/README.md) for the board-support contract.
 

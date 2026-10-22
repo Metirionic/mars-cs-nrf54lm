@@ -509,6 +509,71 @@ is passive: it `continue`s past the CS setup (`reflector/src/main.c:377`) and se
 neither procedure parameters nor the Ranging Service — the initiator drives all CS
 setup — so only `sem_connected` is ever taken.
 
+## Native USB bring-up and deferred logging
+
+Native USB builds are selected by `CONFIG_MARS_CS_TRANSPORT_USB`
+(`common/Kconfig:9`), which only the role-specific board fragments set
+(`boards/nrf54lm20dk_usb_initiator.conf:12`,
+`boards/nrf54lm20dk_usb_reflector.conf`). The symbol selects the device-next
+stack, the CDC ACM class, and `HWINFO`; VCOM builds compile no USB code. The
+role overlays provide the CDC ACM nodes — initiator data first and console
+second, reflector console only (see
+[docs/hardware.md](hardware.md#native-usb-transport)).
+
+### Bring-up and VBUS policy
+
+Both applications call `mars_usb_init()` after `bt_enable()`
+(`initiator/src/main.c:313`, `reflector/src/main.c:340`). The ordering is
+deliberate: USB high speed uses HFCLK24M, which MPSL also owns (DRGN-29129).
+`mars_usb_init()` (`common/mars_usb.c:253`) registers the descriptors and the
+role's CDC ACM class instances, adds a high-speed and a full-speed
+configuration, registers the message callback, and calls `usbd_init()`. On a
+controller that reports VBUS detection — the DK does — it does **not** connect
+the device: `mars_usb_msg_cb()` (`common/mars_usb.c:129`) enables the UDC on
+`USBD_MSG_VBUS_READY` and disables it on `USBD_MSG_VBUS_REMOVED`, and tracks
+host configuration and bus reset in `g_configured`. That is the
+NCSDK-38624 posture: CDC ACM serial initialization never runs at boot, and a
+missing host cannot hang the firmware. A controller without VBUS detection
+(not the DK) is enabled immediately from `mars_usb_init()`.
+
+The USB COBS backend gates on enumeration before it queues anything:
+`cobs_tx_write()` (`initiator/src/cobs_tx_usb.c:203`) checks
+`mars_usb_is_configured()` (`common/mars_usb.c:322`) and, while the host has
+not configured the device, drops and counts the run ("not enumerated") and
+releases the path instead of buffering it. After enumeration the complete run
+is copied into the 29,000-byte full-run ring (`COBS_TX_RUN_MAX_SIZE`,
+`initiator/src/cobs_tx.h:22`) under the backend's spinlock and drained by the
+CDC ACM IRQ callback (`initiator/src/cobs_tx_usb.c:95`) with
+`uart_fifo_fill()`. A run that cannot acquire the path within
+`CONFIG_MARS_CS_USB_TX_TIMEOUT_MS` (default 250 ms, about one procedure
+interval) is dropped and counted ("transport busy"), so a stalled host cannot
+park the consumer thread.
+
+### Deferred console logging
+
+USB builds set deferred logging in the board fragment
+(`boards/nrf54lm20dk_usb_initiator.conf:29-37`) rather than selecting it from
+`CONFIG_MARS_CS_TRANSPORT_USB`, because `LOG_MODE_DEFERRED` is a Kconfig choice
+symbol and another symbol cannot select it. The fragment pins
+`CONFIG_LOG_MODE_DEFERRED=y`, `CONFIG_LOG_BLOCK_IN_THREAD=n`,
+`CONFIG_LOG_PROCESS_THREAD=y`, `CONFIG_LOG_BACKEND_UART=y`, and a 4 KiB
+`CONFIG_LOG_BUFFER_SIZE`. The UART backend is bound to the chosen
+`zephyr,console` node, which the role overlay points at the CDC ACM console
+function. Producers only enqueue into the bounded queue and never block; the
+log process thread drains it. A host that does not read the console can
+therefore delay or lose messages — especially the pre-enumeration burst, which
+can exceed the console function's 1 KiB TX ring — but cannot stall the
+firmware. This is the console-side counterpart of the data path's
+drop-and-count policy: the console is diagnostic, not a data path.
+
+The USB stack's own logging is kept at error level
+(`CONFIG_USBD_LOG_LEVEL_ERR`, `CONFIG_UDC_DRIVER_LOG_LEVEL_ERR`,
+`CONFIG_USBD_CDC_ACM_LOG_LEVEL_OFF`,
+`boards/nrf54lm20dk_usb_initiator.conf:39-43`); per-transfer informational
+logging measurably caps the data function's throughput (about 2.34 MB/s down
+to roughly 100 KB/s in the bring-up measurement). The data path logs only drop
+and error reports, never per-transfer traffic.
+
 ## devicetree / preset / board configuration layer
 
 **devicetree chosen nodes.** The only app-level `DT_CHOSEN` use is
@@ -609,7 +674,12 @@ IPT table above). The antenna/path counts themselves come from the
   `uart_fifo_fill` on the CDC ACM workqueue (the only context that UART API
   allows). A run that cannot be accepted within
   `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS` is dropped and counted rather than left as
-  a partial COBS frame. Either way the serializer and wire format are unchanged.
+  a partial COBS frame, and a run produced before the host enumerates is
+  dropped and counted rather than buffered (`mars_usb_is_configured()`). The
+  DK's data function has a 32 KiB TX FIFO, which exceeds the default
+  32,767-byte ring-buffer limit, so the initiator USB fragment sets
+  `CONFIG_RING_BUFFER_LARGE`. Either way the serializer and wire format are
+  unchanged.
   One event is ~26.6 KB ≈ 289 ms at 921600 baud
   (≈3.5 events/s wire limit); the figures are baud-dependent — at the
   nRF54LM20-DK's 1,000,000 baud the same event drains proportionally faster.
