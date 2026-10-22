@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.4.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.4.0) - 2026-10-22
+#### Features
+- add reflector native USB console - ([854fa0a](https://github.com/Metirionic/mars-cs-nrf54lm/commit/854fa0a232b843a1ce9721710c4b950fb60e5a64)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.3.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.3.0) - 2026-10-22
 #### Features
 - add initiator native USB transport - ([7be0dae](https://github.com/Metirionic/mars-cs-nrf54lm/commit/7be0daeb8b2201e3b24e95ec33a67484bb667c7e)) - AttilaRoemer, Claude Code
