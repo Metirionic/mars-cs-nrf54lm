@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.3.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.3.0) - 2026-10-22
+#### Features
+- add initiator native USB transport - ([7be0dae](https://github.com/Metirionic/mars-cs-nrf54lm/commit/7be0daeb8b2201e3b24e95ec33a67484bb667c7e)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.2.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.2.0) - 2026-10-21
 #### Features
 - make the initiator CS procedure interval build-configurable - ([e84b40b](https://github.com/Metirionic/mars-cs-nrf54lm/commit/e84b40b1006db7bbfb08f0cf830fbe04799715b3)) - AttilaRoemer, Claude Code
