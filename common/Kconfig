@@ -42,6 +42,25 @@ config MARS_CS_ROLE_REFLECTOR
 	  and product ID 0x0002. Exactly one role symbol must be set in a USB
 	  build.
 
+config MARS_CS_USB_DEBUG_CONSOLE_VCOM
+	bool "Route the USB build's log console to the J-Link VCOM (non-release debug)"
+	depends on MARS_CS_TRANSPORT_USB
+	depends on MARS_CS_ROLE_INITIATOR
+	help
+	  Non-release bring-up posture: keep the COBS ranging stream on the
+	  native USB data function, but move the log console to the onboard
+	  debugger's UART. That makes boot, pre-enumeration, and hard-fault
+	  output visible even while USB has not enumerated.
+
+	  A board enables this only from the debug console overlay and
+	  fragment, which are deliberately not applied by any CMake preset.
+	  CI and the release workflow build and ship every preset, so a debug
+	  variant must never become a release preset. In this posture the
+	  role's USB console function stays in the descriptor but receives no
+	  log output; the initiator's USB COBS backend checks that the chosen
+	  console is not a CDC ACM function instead of requiring the console
+	  function to be chosen.
+
 config MARS_CS_USB_TX_TIMEOUT_MS
 	int "COBS USB transmit stall timeout (ms)"
 	default 250

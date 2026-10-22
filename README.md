@@ -81,6 +81,11 @@ antenna-path count. See
 [docs/hardware.md](docs/hardware.md#presets) for the full preset table and
 [boards/README.md](boards/README.md) for the board-support contract.
 
+A non-release debug variant keeps the COBS stream on native USB but puts the
+log console on the J-Link VCOM for pre-enumeration and hard-fault visibility.
+It is not a preset and is never shipped; see
+[docs/build-from-source.md](docs/build-from-source.md#non-release-usb-debug-console-j-link-vcom).
+
 ## Hardware reference
 
 For the board-support contract, DK wiring notes, antenna/path fragment

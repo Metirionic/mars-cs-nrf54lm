@@ -123,6 +123,14 @@ programming and debugging path only.
   `nrf54lm20dk_usb_peri_a1_1`, `nrf54lm20dk_usb_peri_a1_1_ipt`), so every release
   ships both transports. USB preset names follow the same
   `<board>_usb_<cent|peri>_a<antennas>_<paths>[_ipt]` rule as the VCOM presets.
+- A non-release debug posture re-points the log console at the board's J-Link
+  console UART while leaving the COBS data function — and therefore the
+  ranging stream — on native USB. It is selected by
+  `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM`, set only by the debug overlay/fragment
+  pair, and exists so boot, pre-enumeration, and hard-fault output stay visible
+  during bring-up. It is not a CMake preset, so neither CI nor the release
+  archive builds or ships it. The USB console function remains in the
+  descriptor but carries no logs in that posture.
 - The two-DK bench harness selects the transport, resolves the role-specific
   by-id ports from the SoC serial, asserts the 480 Mbit/s link and expected
   interface mapping on USB runs, and reports wire rate and drop counts. The
@@ -191,6 +199,10 @@ programming and debugging path only.
   has no controllable port power).
 - **The console is best-effort.** Its 1 KiB TX ring and the bounded deferred log
   queue can drop messages, especially before enumeration.
+- **Release USB builds have no pre-enumeration console.** The log console is
+  the CDC ACM console function, so a fault before the host enumerates is not
+  visible over USB. The non-release debug posture moves the console to the
+  J-Link VCOM for bring-up; it is deliberately not released.
 - **The USB identity uses development IDs.** VID `0x1915` and PIDs `0x0001` /
   `0x0002` are Nordic development values; a USB-IF VID/PID is pre-product work.
 - **Windows and macOS coverage is manual.** Linux is the merge and release
@@ -204,5 +216,7 @@ programming and debugging path only.
 - Preset table: [hardware reference](../hardware.md#presets).
 - Implementation: `common/mars_usb.{c,h}`, `initiator/src/cobs_tx.h`,
   `initiator/src/cobs_tx_vcom.c`, `initiator/src/cobs_tx_usb.c`,
-  `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_*.overlay`, and
-  `boards/nrf54lm20dk_usb_*.conf`.
+  `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_*.overlay`,
+  `boards/nrf54lm20dk_usb_*.conf`, and the non-release debug pair
+  `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay` /
+  `boards/nrf54lm20dk_usb_initiator_debug.conf`.

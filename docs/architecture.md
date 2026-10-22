@@ -537,13 +537,13 @@ missing host cannot hang the firmware. A controller without VBUS detection
 (not the DK) is enabled immediately from `mars_usb_init()`.
 
 The USB COBS backend gates on enumeration before it queues anything:
-`cobs_tx_write()` (`initiator/src/cobs_tx_usb.c:203`) checks
+`cobs_tx_write()` (`initiator/src/cobs_tx_usb.c:214`) checks
 `mars_usb_is_configured()` (`common/mars_usb.c:322`) and, while the host has
 not configured the device, drops and counts the run ("not enumerated") and
 releases the path instead of buffering it. After enumeration the complete run
 is copied into the 29,000-byte full-run ring (`COBS_TX_RUN_MAX_SIZE`,
 `initiator/src/cobs_tx.h:22`) under the backend's spinlock and drained by the
-CDC ACM IRQ callback (`initiator/src/cobs_tx_usb.c:95`) with
+CDC ACM IRQ callback (`initiator/src/cobs_tx_usb.c:106`) with
 `uart_fifo_fill()`. A run that cannot acquire the path within
 `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS` (default 250 ms, about one procedure
 interval) is dropped and counted ("transport busy"), so a stalled host cannot
@@ -566,6 +566,16 @@ can exceed the console function's 1 KiB TX ring — but cannot stall the
 firmware. This is the console-side counterpart of the data path's
 drop-and-count policy: the console is diagnostic, not a data path.
 
+A non-release debug posture (`CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM`, set only by
+`boards/nrf54lm20dk_usb_initiator_debug.conf`) re-points the console chosen
+nodes at the board's J-Link console UART (`uart20` on the DK) while
+`cobs-uart` stays on the CDC ACM data function. `cobs_tx_usb.c` then asserts
+that the data function is still instance 0 and that the chosen console is not
+CDC ACM. Boot, pre-enumeration, and hard-fault output therefore stay visible on
+the onboard debugger; the USB console function stays in the descriptor but is
+unused. The variant is not a CMake preset and is never released — see
+[docs/build-from-source.md](build-from-source.md#non-release-usb-debug-console-j-link-vcom).
+
 The USB stack's own logging is kept at error level
 (`CONFIG_USBD_LOG_LEVEL_ERR`, `CONFIG_UDC_DRIVER_LOG_LEVEL_ERR`,
 `CONFIG_USBD_CDC_ACM_LOG_LEVEL_OFF`,
@@ -579,7 +589,7 @@ and error reports, never per-transfer traffic.
 **devicetree chosen nodes.** The only app-level `DT_CHOSEN` use is
 `cobs-uart` — the initiator's COBS ranging stream. Exactly one build-selected
 TX backend resolves it: `cobs_tx_vcom.c:19` for VCOM builds or
-`cobs_tx_usb.c:55` for native USB builds. The other chosen nodes are set by
+`cobs_tx_usb.c:66` for native USB builds. The other chosen nodes are set by
 each board overlay:
 `zephyr,console`, `zephyr,shell-uart`, `zephyr,uart-mcumgr`,
 `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`, consumed by Zephyr subsystems
