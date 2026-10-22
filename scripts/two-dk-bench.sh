@@ -152,10 +152,9 @@ Options:
                                 while keeping it open and the consoles
                                 capturing, then confirm the firmware stays
                                 alive and reports the USB transport drop.
-                                Reset the initiator just before the run: the
-                                firmware logs only the first drop and every
-                                128th, so the report is visible only from a
-                                zero drop counter
+                                Reset the initiator just before the run (see
+                                the fresh-boot note below) so the report is
+                                visible from a zero drop counter
       --analyze-dir DIR         Re-run the assertions on a previous capture
                                 (DIR must hold initiator-console.log,
                                 reflector-console.log, initiator-cobs.bin; an
@@ -178,6 +177,12 @@ and its console -if02; the reflector console is -if00. A USB run asserts the
 480 Mbit/s high-speed link, the interface mapping, and the role identity
 through USB_SYSFS_ROOT (default: /sys). SERIAL_BY_ID_DIR overrides the by-id
 root (default: /dev/serial/by-id).
+
+Start a USB release run from a freshly reset initiator: reset or reflash,
+wait for the native-USB device to re-enumerate, then start the harness. The
+USB transport gate sees only the drop reports the firmware emits (the first
+drop and every 128th), so a stale counter can hide up to 127 new drops and
+let a dirty run pass.
 
 The harness does not flash the DKs. Flash a matched mode pair first:
   VCOM RAS: nrf54lm20dk_cent_a1_1 + nrf54lm20dk_peri_a1_1
