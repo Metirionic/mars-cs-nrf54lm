@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.6.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.6.0) - 2026-10-22
+#### Features
+- document native USB transport for v0.6.0 - ([7f7850f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/7f7850f0ec34a070a789e87274e6f3d324d83e56)) - AttilaRoemer, Claude Code
+#### Documentation
+- add ADR 0001 and document native USB board support - ([922d6dd](https://github.com/Metirionic/mars-cs-nrf54lm/commit/922d6dd74b6329431e58600c79adaaad1fd67a03)) - AttilaRoemer, Claude Code
+- require a fresh initiator boot for USB bench runs - ([89f069f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/89f069fb435a3466161c8bc9271447a7662ec2c0)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.5.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.5.0) - 2026-10-22
 #### Features
 - add native USB transport to the two-DK bench harness - ([8d96ac2](https://github.com/Metirionic/mars-cs-nrf54lm/commit/8d96ac2501982486d20237ca01c7e74df37cda03)) - AttilaRoemer, Claude Code
