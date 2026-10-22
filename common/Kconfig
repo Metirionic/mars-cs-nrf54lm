@@ -6,6 +6,55 @@
 
 menu "Mars Channel Sounding options"
 
+config MARS_CS_TRANSPORT_USB
+	bool "Route the COBS stream and console over native USB"
+	select USB_DEVICE_STACK_NEXT
+	select USBD_CDC_ACM_CLASS
+	select HWINFO
+	help
+	  Carry the initiator's COBS ranging stream and both roles' consoles
+	  over the nRF54LM20 native USB (device-next stack, CDC ACM) instead of
+	  the onboard debugger's virtual COM ports. Enabled only by the USB
+	  board configuration fragments; the VCOM presets never see it, so VCOM
+	  builds compile no USB code.
+
+	  The role-specific USB overlays provide the CDC ACM devicetree nodes and
+	  chosen nodes (data first, console second for the initiator). The USB
+	  transport is brought up after the BLE stack and enabled on VBUS attach,
+	  never at boot (NCSDK-38624). Deferred logging is set by the USB board
+	  fragment rather than selected here because LOG_MODE_DEFERRED is a
+	  choice symbol, which Kconfig does not allow other symbols to select.
+
+config MARS_CS_ROLE_INITIATOR
+	bool "USB identity: Channel Sounding initiator"
+	depends on MARS_CS_TRANSPORT_USB
+	help
+	  Select the initiator USB identity: product string "Mars CS Initiator"
+	  and product ID 0x0001. Exactly one role symbol must be set in a USB
+	  build. The role is a build-time identity choice; it is deliberately
+	  independent of the BLE role.
+
+config MARS_CS_ROLE_REFLECTOR
+	bool "USB identity: Channel Sounding reflector"
+	depends on MARS_CS_TRANSPORT_USB
+	help
+	  Select the reflector USB identity: product string "Mars CS Reflector"
+	  and product ID 0x0002. Exactly one role symbol must be set in a USB
+	  build.
+
+config MARS_CS_USB_TX_TIMEOUT_MS
+	int "COBS USB transmit stall timeout (ms)"
+	default 250
+	range 10 60000
+	depends on MARS_CS_TRANSPORT_USB
+	help
+	  Maximum time the serialize consumer waits for the USB transmit path
+	  to accept a complete COBS run before the run is dropped and counted.
+	  The healthy procedure cadence is ~200 ms at the default interval, so
+	  the default bounds the wait to roughly one procedure interval. A host
+	  stall therefore degrades to counted drops instead of blocking the
+	  consumer forever.
+
 config MARS_CS_INLINE_PCT
 	bool "Enable inline Phase Correction Term Transfer (IPT) mode"
 	depends on BT_CHANNEL_SOUNDING

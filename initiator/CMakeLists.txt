@@ -21,8 +21,18 @@ project(initiator)
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../common cs_common)
 
-target_sources(app PRIVATE src/main.c src/serialize.c src/cobs_tx_vcom.c
+target_sources(app PRIVATE src/main.c src/serialize.c
                            ${CMAKE_CURRENT_LIST_DIR}/../common/rust_callbacks.c)
+
+# Exactly one COBS TX backend is built: the USB backend is only compiled when
+# the USB board fragment selects the native USB transport, so VCOM builds carry
+# no USB code (and USB builds carry no VCOM backend).
+if(CONFIG_MARS_CS_TRANSPORT_USB)
+  target_sources(app PRIVATE src/cobs_tx_usb.c)
+else()
+  target_sources(app PRIVATE src/cobs_tx_vcom.c)
+endif()
+
 target_include_directories(app PRIVATE src)
 target_link_libraries(app PRIVATE cs_common)
 target_include_directories(cs_common

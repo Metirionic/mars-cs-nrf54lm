@@ -33,14 +33,15 @@ Two firmware roles plus a shared library:
 | `main.c` | "Channel Sounding initiator with ranging requester sample" — app entry: registers the consumer-thread callback `process_subevent_cb` for both modes, the RAS-only `process_log_cb`, and the RAS `ranging_data_cb` / `ranging_data_ready_cb`, builds the `cs_initiator_config`, calls `cs_initiator_start`, and runs the consumer loop. `main()` at `initiator/src/main.c:279`. |
 | `serialize.c` | "Channel Sounding data serializer" — parses local + peer step data into `SubeventResultEvent_t`, calls the Rust COBS serializer, and hands each complete serialization run to the COBS TX seam. |
 | `serialize.h` | Prototypes for `serialize_run` and `serialize_send_log_message`. |
-| `cobs_tx.h` | Transport-neutral COBS TX seam: acquire the run buffer, submit one complete run, release a run that was not submitted. |
-| `cobs_tx_vcom.c` | VCOM COBS TX backend — owns the `cobs-uart` device, the asynchronous `uart_tx` submission, and the `sem_tx_done` TX-done gate. |
+| `cobs_tx.h` | Transport-neutral COBS TX seam: acquire the run buffer, submit one complete run, release a run that was not submitted. `COBS_TX_RUN_MAX_SIZE` is the largest run the seam accepts. |
+| `cobs_tx_vcom.c` | VCOM COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is off) — owns the `cobs-uart` device, the asynchronous `uart_tx` submission, and the `sem_tx_done` TX-done gate. |
+| `cobs_tx_usb.c` | USB COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is on) — owns the CDC ACM data UART (chosen `cobs-uart`), a `COBS_TX_RUN_MAX_SIZE` full-run ring, and the IRQ-callback drain into the driver with `uart_fifo_fill`; `sem_tx_free` gates the run path. |
 
 `initiator/CMakeLists.txt`:
 
 - Fetches the Rust crate `mars-bluetooth-hci@0.13.2` via CMake `FetchContent` (`:6-11`).
 - Builds the shared `common` library as `cs_common` via `add_subdirectory(../common cs_common)` (`:22`).
-- Compiles `src/main.c`, `src/serialize.c`, `src/cobs_tx_vcom.c`, and `common/rust_callbacks.c` straight into `app` (`:24-25`) — note `common/rust_callbacks.c` is compiled into `app`, not into `cs_common`.
+- Compiles `src/main.c`, `src/serialize.c`, `common/rust_callbacks.c`, and exactly one COBS TX backend straight into `app` (`:24-34`): `src/cobs_tx_vcom.c` for VCOM builds, `src/cobs_tx_usb.c` when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. VCOM builds therefore compile no USB code, and USB builds compile no VCOM backend.
 - Links `cs_common` (`:27`) and the Rust static archive (`:31-32`); exposes the generated Rust header to `cs_common` (`:28-29`).
 
 ### reflector
@@ -60,8 +61,9 @@ Two firmware roles plus a shared library:
 
 `common/CMakeLists.txt` builds it as the `cs_common` static library
 (`antenna.c ble_callbacks.c ble_scanning.c cs_initiator.c cs_step_parse.c cs_watchdog.c subevent.c addr_utils.c`,
-`:4-13`), with `zephyr_interface` linked PRIVATE so the lib can use Zephyr
-headers without pulling the full Zephyr target (`:15`).
+`:4-13`), plus `mars_usb.c` for native USB builds only (`:15-19`), with
+`zephyr_interface` linked PRIVATE so the lib can use Zephyr
+headers without pulling the full Zephyr target (`:22`).
 
 **The `common` code is shared two different ways — call this out, it is not symmetric:**
 
@@ -79,6 +81,7 @@ headers without pulling the full Zephyr target (`:15`).
 | `cs_initiator.{c,h}` | "Shared Channel Sounding initiator connection and configuration flow" — the heart of the initiator: all setup semaphores, the step-data net buffers, the RAS feature bits, the MACs, and `cs_initiator_start()` which runs the full setup handshake; also defines the local `subevent_result_cb`. |
 | `cs_step_parse.{c,h}` | "Shared CS step data parsing into SubeventResultEvent structures" — `cs_step_parse()` (RAS) converts local + peer HCI Mode-2 step records into the Rust FFI `SubeventResultEvent_t` / `Step_t` / `Mode2_t` fields; also populates the Mode-0 calibration steps (kind per role from the step `data_len`, measured frequency offset passed through raw); `cs_step_parse_inline()` (IPT) parses the local steps only and synthesizes the peer event per step with a transparent identity (1.0 + 0.0j) Phase Correction Term for Mode-2 and a zeroed `MODE0_REFLECTOR` step for Mode-0, so the downstream combiner sees a structurally valid `ORIGIN_REFLECTOR` event with a no-op phase rotation. |
 | `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector); on timeout it invokes the registered recovery callback (both apps force a disconnect that reboots the pair). Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
+| `mars_usb.{c,h}` | "Shared native USB bring-up module" — the single USB device context, string descriptors (product/PID by role, SoC-derived serial), full-speed and high-speed configurations, CDC ACM class registration, VBUS policy, and `mars_usb_init()`. Compiled into `cs_common` only when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. |
 | `subevent.{c,h}` | "CS subevent data parsing into SubeventResultEvent structures" — `subevent_populate()` (RAS) fills the initiator + reflector events from both the local and peer step buffers via `cs_step_parse()`; `subevent_populate_inline()` (IPT) fills them from the local step buffer only via `cs_step_parse_inline()` (the reflector's phase contribution is embedded in the local tones, so there is no peer buffer). Both seed the shared header through `fill_subevent_header()`. |
 | `rust_callbacks.c` | "Shared Rust FFI callback implementations" — the C functions the Rust runtime calls back into (`rust_panic_cb`, `rust_print_cb`). Compiled into the initiator `app` only. |
 
@@ -147,10 +150,13 @@ The firmware has two ranging modes, selected at build time by
 
 Both modes converge on the same output: a `SubeventResultEvent_t` pair is
 populated, then `serialize_run()` COBS-encodes it via the Rust FFI and hands the
-complete run to the transport-neutral COBS TX seam — the same
-`mars-bluetooth-hci` wire format either way (there is no separate host-decoder
-story for IPT). The VCOM backend of that seam is the only code that touches the
-`cobs-uart` device. The modes differ only in
+complete run to the transport-neutral COBS TX seam. The build-selected backend
+of that seam is the only code that touches the `cobs-uart` device:
+`cobs_tx_vcom.c` submits with asynchronous `uart_tx` for VCOM builds, while
+`cobs_tx_usb.c` copies the run into a full-run ring that its CDC ACM IRQ
+callback drains with `uart_fifo_fill` for native USB builds. The wire format is
+the same `mars-bluetooth-hci` output either way (there is no separate
+host-decoder story for IPT). The modes differ only in
 the **acquisition** half — how the step data is gathered and when the events are
 populated. RAS is *peer-data-driven* (serialization waits for the peer's RAS
 ranging data to arrive); IPT is *local-data-driven* (serialization runs as soon as
@@ -225,18 +231,24 @@ End-to-end on the initiator:
    `process_subevent_cb`, at the consume rate). `serialize_run()`
    (`initiator/src/serialize.c:162-238`)
    acquires the run path via `cobs_tx_acquire()` — the VCOM backend takes the
-   `sem_tx_done` TX-complete gate there — then `serialize_append_event()`
+   `sem_tx_done` TX-complete gate there, while the USB backend takes
+   `sem_tx_free` and gives it back when its full-run ring has been handed to
+   the CDC ACM driver — then `serialize_append_event()`
    calls `serialize_subevent_result_event(p_event, true)` (Rust FFI, COBS on,
    `:94`) for each of the local and peer events; the returned `SerializedData_t` is
    copied into the static `g_serialized[]` buffer by `serialize_cb()` and freed
    with `drop_bin()`, followed by a `serialize_log_message("Processing finished")`.
    Finally `cobs_tx_write(g_serialized, g_total_written_size, K_FOREVER)` (`:219`)
-   hands the whole run to the VCOM backend, which submits it with
-   `uart_tx(...)` (`initiator/src/cobs_tx_vcom.c:112`). The backend acquires the
-   UART device once at init: `gp_cobs_uart_dev = DEVICE_DT_GET(DT_CHOSEN(cobs_uart))`
-   (`cobs_tx_vcom.c:19`). The async UART API is enabled
+   hands the whole run to the build-selected backend. VCOM builds submit it with
+   `uart_tx(...)` (`initiator/src/cobs_tx_vcom.c:112`); USB builds copy the run
+   atomically into `cobs_usb_tx_ring` and drain it from the CDC ACM IRQ callback
+   with `uart_fifo_fill` (`initiator/src/cobs_tx_usb.c`). The VCOM backend
+   acquires the UART device once at init:
+   `gp_cobs_uart_dev = DEVICE_DT_GET(DT_CHOSEN(cobs_uart))`
+   (`cobs_tx_vcom.c:19`); the USB backend resolves the same chosen node to its
+   CDC ACM data UART. The async UART API is enabled
    (`CONFIG_UART_ASYNC_API=y`, `initiator/prj.conf:26`);
-   `g_serialized` is `29000` bytes (`CHUNK_SIZE*2 + 1000`, `serialize.c:37,40`).
+   `g_serialized` is `29000` bytes (`COBS_TX_RUN_MAX_SIZE`, `serialize.c:37,43`).
 
 ```mermaid
 sequenceDiagram
@@ -403,9 +415,10 @@ eight unconditional (`common/cs_initiator.c:33-43`, including the shared handoff
 `sem_event_free`) plus three RAS-only (`:64-66`, under
 `#if IS_ENABLED(CONFIG_BT_RAS_RREQ)`) — in three groups; an IPT build compiles
 the eight in this file, since it does no MTU exchange, GATT discovery, or
-RAS-feature read. The VCOM TX backend adds one more, `sem_tx_done`
-(`initiator/src/cobs_tx_vcom.c:30`), which both initiator builds compile, so a
-RAS build has twelve `k_sem` instances and an IPT build nine. (A `K_MSGQ` for
+RAS-feature read. The build-selected TX backend adds one more: `sem_tx_done`
+(`initiator/src/cobs_tx_vcom.c:30`) for VCOM builds or `sem_tx_free`
+(`initiator/src/cobs_tx_usb.c`) for USB builds, so either way a RAS build has
+twelve `k_sem` instances and an IPT build nine. (A `K_MSGQ` for
 RAS fault-path diagnostics sits alongside them; it is not a semaphore.)
 
 **One-shot setup semaphores** (`K_SEM_DEFINE(..., 0, 1)`) pace
@@ -480,9 +493,11 @@ while (true) {
 ```
 
 The main loop thread is the serialize consumer — the real work splits across
-two threads: acquire → parse → populate on the RX thread, serialize → UART TX
-on the main thread. RAS uses the same split as IPT, so a stalled transport can
-no longer starve the controller in either mode.
+two threads: acquire → parse → populate on the RX thread, serialize + submit on
+the main thread. For VCOM builds the submit is the asynchronous `uart_tx()`;
+for USB builds it is the copy into the full-run ring, whose drain into the CDC
+ACM driver runs on the CDC ACM workqueue. RAS uses the same split as IPT, so a
+stalled transport can no longer starve the controller in either mode.
 
 For contrast, the reflector uses only two semaphores — `sem_connected` and
 `sem_config` (`reflector/src/main.c:34-36`). Its `main()` loop
@@ -496,9 +511,11 @@ setup — so only `sem_connected` is ever taken.
 
 ## devicetree / preset / board configuration layer
 
-**devicetree chosen nodes.** Only one `DT_CHOSEN` call exists in any `src/`
-directory: `cobs-uart` (`initiator/src/cobs_tx_vcom.c:19`) — the initiator's COBS
-ranging stream. The other chosen nodes are set by each board overlay:
+**devicetree chosen nodes.** The only app-level `DT_CHOSEN` use is
+`cobs-uart` — the initiator's COBS ranging stream. Exactly one build-selected
+TX backend resolves it: `cobs_tx_vcom.c:19` for VCOM builds or
+`cobs_tx_usb.c:55` for native USB builds. The other chosen nodes are set by
+each board overlay:
 `zephyr,console`, `zephyr,shell-uart`, `zephyr,uart-mcumgr`,
 `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`, consumed by Zephyr subsystems
 (shell, mcumgr, bt-mon, bt-c2h), not by app code. The `cs_antenna_switch` node
@@ -546,7 +563,7 @@ explain the module asymmetry above:
 | `CONFIG_BT_RAS_RREQ` (RAS Requester — pulls ranging data) | `:24` | — | initiator pulls peer ranging data |
 | `CONFIG_BT_RAS_RRSP` (RAS Responder — serves ranging data) | — | `:41` | reflector serves ranging data |
 | `CONFIG_BT_CENTRAL` / `CONFIG_BT_SCAN` | `:17-20` (also `central.overlay`) | — | initiator scans; reflector advertises (`CONFIG_BT_PERIPHERAL`, `:11`) |
-| `CONFIG_UART_ASYNC_API` | `:26` | — | COBS TX path (VCOM backend: async `uart_tx`) |
+| `CONFIG_UART_ASYNC_API` | `:26` | — | COBS TX path (VCOM backend: async `uart_tx`); the USB board conf sets it `n`, since the USB backend uses the CDC ACM interrupt-driven API |
 | `CONFIG_NEWLIB_LIBC` | `:32` | — | provides `malloc`/`free` for the Rust allocator |
 | `CONFIG_FPU` / `CONFIG_FPU_SHARING` | `:56-57` | — | the parser writes `float` PCT values into the Rust structs |
 | `CONFIG_HEAP_MEM_POOL_SIZE=32768` / `CONFIG_MAIN_STACK_SIZE=10000` | `:59-60` | — | Rust allocator + serialize stack headroom |
@@ -577,19 +594,27 @@ IPT table above). The antenna/path counts themselves come from the
 - **COBS transmit goes through a transport-neutral seam.** `serialize_run()`
   never calls the UART driver: it acquires the run path with
   `cobs_tx_acquire()`, fills `g_serialized[]`, and submits the whole run with
-  `cobs_tx_write()` (`initiator/src/serialize.c`). The VCOM backend
-  (`initiator/src/cobs_tx_vcom.c`) owns the `cobs-uart` device, registers the
-  `uart_callback_set` handler that signals `UART_TX_DONE` / `UART_TX_ABORTED`
-  via `sem_tx_done`, takes that semaphore in `cobs_tx_acquire()` before the
-  static buffer is reused, and submits with asynchronous `uart_tx()`. So
-  `uart_tx()` is never called while a previous transfer is still DMA-ing out
-  of `g_serialized` (no on-wire COBS corruption, no `-EBUSY`), and a future
-  transport backend can replace `cobs_tx_vcom.c` without touching the
-  serializer. One event is ~26.6 KB ≈ 289 ms at 921600 baud
+  `cobs_tx_write()` (`initiator/src/serialize.c`). The backend is selected at
+  build time. The VCOM backend (`initiator/src/cobs_tx_vcom.c`) owns the
+  `cobs-uart` device, registers the `uart_callback_set` handler that signals
+  `UART_TX_DONE` / `UART_TX_ABORTED` via `sem_tx_done`, takes that semaphore in
+  `cobs_tx_acquire()` before the static buffer is reused, and submits with
+  asynchronous `uart_tx()`. So `uart_tx()` is never called while a previous
+  transfer is still DMA-ing out of `g_serialized` (no on-wire COBS corruption,
+  no `-EBUSY`). The USB backend (`initiator/src/cobs_tx_usb.c`) owns the CDC ACM
+  data UART (the same chosen `cobs-uart` node), waits in `cobs_tx_acquire()` for
+  its `COBS_TX_RUN_MAX_SIZE` full-run ring to drain, copies the complete run in
+  atomically, and lets the CDC ACM IRQ callback drain the ring with
+  `uart_fifo_fill` on the CDC ACM workqueue (the only context that UART API
+  allows). A run that cannot be accepted within
+  `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS` is dropped and counted rather than left as
+  a partial COBS frame. Either way the serializer and wire format are unchanged.
+  One event is ~26.6 KB ≈ 289 ms at 921600 baud
   (≈3.5 events/s wire limit); the figures are baud-dependent — at the
   nRF54LM20-DK's 1,000,000 baud the same event drains proportionally faster.
   In **both RAS and IPT** the blocking runs on the main loop thread
-  (`cs_initiator_consume_pending_event()`); the RX thread only populates the
+  (`cs_initiator_consume_pending_event()`); for USB builds the CDC ACM drain
+  runs on the CDC ACM workqueue. The RX thread only populates the
   event pair (or queues a fault diagnostic) and drops the procedure at the
   `sem_event_free` gate if the consumer is still busy. Running the serialize
   back in the RX thread would starve the SDC's step-data delivery and turn

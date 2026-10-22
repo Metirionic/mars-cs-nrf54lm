@@ -1,0 +1,59 @@
+/*
+ * Copyright (c) 2026 Metirionic
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
+ * nRF54LM20-DK native USB transport for the initiator.
+ *
+ * The initiator enumerates as a two-function composite CDC ACM device:
+ *   - first function  "CS Data": the COBS ranging stream (chosen cobs-uart)
+ *   - second function "Console": deferred log output (zephyr,console)
+ *
+ * Order is significant: the Zephyr CDC ACM class instances are numbered in
+ * devicetree order (cdc_acm_0, cdc_acm_1), and the host's stable by-id names
+ * expose interface 00 as data and interface 02 as console. The 32 KB data TX
+ * ring holds one worst-case serialization run (~29 KB), so a run is enqueued
+ * atomically.
+ *
+ * Both VCOM UARTs are disabled: a USB build must not carry unused UART
+ * drivers or pin assignments. The VCOM board overlay stays unchanged and is
+ * not applied by the nrf54lm20dk_usb_* presets.
+ */
+
+/ {
+	chosen {
+		cobs-uart = &cdc_data;
+		zephyr,console = &cdc_console;
+		zephyr,shell-uart = &cdc_console;
+		zephyr,uart-mcumgr = &cdc_console;
+		zephyr,bt-mon-uart = &cdc_console;
+		zephyr,bt-c2h-uart = &cdc_console;
+	};
+};
+
+&zephyr_udc0 {
+	cdc_data: cdc_data {
+		compatible = "zephyr,cdc-acm-uart";
+		label = "CS Data";
+		tx-fifo-size = <32768>;
+		rx-fifo-size = <64>;
+	};
+
+	cdc_console: cdc_console {
+		compatible = "zephyr,cdc-acm-uart";
+		label = "Console";
+		tx-fifo-size = <1024>;
+		rx-fifo-size = <64>;
+	};
+};
+
+/* VCOM0 (COBS in VCOM builds) and VCOM1 (console in VCOM builds). */
+&uart30 {
+	status = "disabled";
+};
+
+&uart20 {
+	status = "disabled";
+};

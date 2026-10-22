@@ -25,6 +25,7 @@
 #include "ble_callbacks.h"
 #include "cs_initiator.h"
 #include "cs_watchdog.h"
+#include "mars_usb.h"
 #include "serialize.h"
 #include "subevent.h"
 
@@ -303,6 +304,19 @@ int main(void)
         LOG_ERR("Bluetooth init failed (err %d)", err);
         return 0;
     }
+
+#if IS_ENABLED(CONFIG_MARS_CS_TRANSPORT_USB)
+    /* Native USB is initialized after the BLE stack: MPSL and the shared
+     * HFCLK24M are already up (DRGN-29129 / DRGN-29277). Initialization does
+     * not connect the device; the UDC waits for VBUS, so boot never blocks on
+     * a missing host and CDC ACM serial init never runs at boot (NCSDK-38624). */
+    err = mars_usb_init();
+    if (err)
+    {
+        LOG_ERR("USB init failed (err %d)", err);
+        return 0;
+    }
+#endif
 
     /* CS liveness watchdog (#116): inert until the first completed procedure
      * with step data pets it, so the handshake never false-triggers it. */
