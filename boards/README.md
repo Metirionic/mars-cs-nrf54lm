@@ -52,12 +52,8 @@ the wiring notes and the preset table.
      The initiator drives it with `GPIO_OUTPUT_ACTIVE` at boot. Boards without
      the property skip the code entirely.
    - For a native USB transport, a role-specific USB overlay
-     (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay. It
-     declares the CDC ACM functions under `&zephyr_udc0` in interface order
-     (initiator: data first via the `cobs-uart` chosen node, console second via
-     `zephyr,console`; reflector: the single console function), sets the
-     console chosen nodes to the console function, and disables the UART nodes
-     the USB build does not use.
+     (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay; see
+     [Native USB transport](#native-usb-transport).
 
 2. **An optional board `.conf` fragment** (`boards/<board>.conf`) when the
    board needs board-level Kconfig, typically the RTT console backend:
@@ -69,9 +65,9 @@ the wiring notes and the preset table.
    ```
    A native USB transport adds a role/transport fragment
    (`boards/nrf54lm20dk_usb_initiator.conf` or
-   `boards/nrf54lm20dk_usb_reflector.conf` on the DK) that sets
-   `CONFIG_MARS_CS_TRANSPORT_USB`, the role symbol, the USB stack and CDC ACM
-   options, and deferred logging.
+   `boards/nrf54lm20dk_usb_reflector.conf` on the DK) that sets the transport
+   and role Kconfig and deferred logging; see
+   [Transport Kconfig](#transport-kconfig).
 
 3. **Presets** in `initiator/CMakePresets.json` and
    `reflector/CMakePresets.json`. Each preset sets:
@@ -85,12 +81,108 @@ the wiring notes and the preset table.
    - `binaryDir` — `${sourceDir}/build_<preset>`.
 
    Preset names follow `<board>[_usb]_<cent|peri>_a<antennas>_<paths>[_ipt]`.
+   A USB preset uses the role's USB overlay and USB board fragment in place of
+   the VCOM ones; see [Presets and naming](#presets-and-naming).
 
 4. **Documentation** — a row per board in `docs/hardware.md` and, when the
    board has non-obvious wiring, a wiring-notes subsection.
 
 5. **CI/release inclusion** — nothing else to edit: the workflows enumerate
    every preset in each `CMakePresets.json` via `ci/list-presets.sh`.
+
+## Native USB transport
+
+A board may expose the initiator's COBS ranging stream and both roles'
+consoles on its native USB device controller instead of a debugger's virtual
+COM ports. The decision and its constraints are recorded in
+[ADR 0001](../docs/adr/0001-native-usb-transport.md); this section is the
+per-board contract. The shared `common/mars_usb` module owns the device
+context, identity, string descriptors, VBUS policy, and initialization; a board
+adds only devicetree and Kconfig.
+
+The board must expose a high-speed-capable USB device controller as
+`zephyr_udc0` and support the device-next stack (`USB_DEVICE_STACK_NEXT`). It
+should report VBUS detection (`usbd_can_detect_vbus()`); on a controller
+without it, the shared module connects immediately after initialization instead
+of waiting for a VBUS-ready message. High speed is the required link; full
+speed is a fallback. `CONFIG_MARS_CS_TRANSPORT_USB` selects `HWINFO`, which the
+shared module uses to derive the USB serial number from the SoC's unique device
+ID.
+
+### Role-specific overlays
+
+Add `boards/<board>..._usb_initiator.overlay` and
+`boards/<board>..._usb_reflector.overlay`. A USB preset applies exactly one of
+them instead of the VCOM overlay; the VCOM overlay stays unchanged for the VCOM
+presets. In both overlays:
+
+- Declare the role's CDC ACM functions under `&zephyr_udc0` with
+  `compatible = "zephyr,cdc-acm-uart"`.
+- Set every console chosen node (`zephyr,console`, `zephyr,shell-uart`,
+  `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`) to the
+  console function.
+- Disable every UART node the USB build does not use, so the build carries no
+  unused UART drivers or pin assignments. On the DK that is `&uart30` (VCOM0)
+  and `&uart20` (VCOM1).
+
+The initiator overlay declares exactly two functions, in interface order:
+
+1. **data** — chosen `cobs-uart`, with `label = "CS Data"`. Its
+   `tx-fifo-size` must hold one whole serialization run: at least
+   `COBS_TX_RUN_MAX_SIZE` (29,000 bytes; the DK uses 32,768). Keep
+   `rx-fifo-size` small because the data receive path is not enabled.
+2. **console** — chosen `zephyr,console`, with `label = "Console"` and a small
+   best-effort TX ring (the DK uses 1,024 bytes).
+
+The labels become the interface strings the host shows for the functions.
+
+The order is load-bearing: the USB COBS backend asserts that `cobs-uart` is
+CDC ACM instance 0 and `zephyr,console` instance 1, and the order is what makes
+the host's by-id names expose the data function as `if00` and the console as
+`if02`.
+
+The reflector overlay declares exactly one function — the console. It has no
+`cobs-uart` chosen node and no data function. The shared module asserts that
+the number of CDC ACM nodes matches the role's function count, so a mismatch
+fails at build time.
+
+### Transport Kconfig
+
+Add `boards/<board>_usb_<role>.conf` and apply it from the USB presets. The
+required symbols are:
+
+| Symbol | Value | Purpose |
+|--------|-------|---------|
+| `CONFIG_MARS_CS_TRANSPORT_USB` | `y` | Selects the device-next stack, CDC ACM, and `HWINFO`; switches the initiator to the USB COBS backend. The VCOM presets never see it. |
+| `CONFIG_MARS_CS_ROLE_INITIATOR` / `CONFIG_MARS_CS_ROLE_REFLECTOR` | exactly one `y` | Selects the product string and product ID. The shared module fails the build on none or both. |
+| `CONFIG_USBD_MAX_SPEED_HIGH` | `y` | High speed is the required link; full speed is a fallback. |
+| `CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT` | `n` | Avoids the NCSDK-38624 boot hang; the shared module enables the UDC on VBUS attach. |
+| `CONFIG_UART_ASYNC_API` | `n` | CDC ACM implements only the interrupt-driven UART API, not the asynchronous one. |
+| `CONFIG_LOG`, `CONFIG_LOG_MODE_DEFERRED`, `CONFIG_LOG_PROCESS_THREAD`, `CONFIG_LOG_BACKEND_UART` | `y` | Deferred console output: producers enqueue and never block on a host that does not read. |
+| `CONFIG_LOG_BLOCK_IN_THREAD` | `n` | The bounded log queue drops under pressure instead of blocking. |
+| `CONFIG_LOG_BUFFER_SIZE` | `4096` (DK) | Bounds the log queue. |
+| `CONFIG_USBD_LOG_LEVEL_ERR`, `CONFIG_UDC_DRIVER_LOG_LEVEL_ERR` | `y` | Per-transfer USB logging at informational level measurably caps data throughput. |
+| `CONFIG_USBD_CDC_ACM_LOG_LEVEL_OFF` | `y` | Same, for the CDC ACM class. |
+
+The initiator fragment also sets `CONFIG_RING_BUFFER_LARGE=y`: its 32 KiB data
+TX ring exceeds the default 32,767-byte ring-buffer limit. A board must not
+size the data function below one whole run. `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS`
+(default 250 ms) bounds the host-stall wait and normally needs no board
+override.
+
+Deferred logging is set by the board fragment rather than selected by
+`CONFIG_MARS_CS_TRANSPORT_USB`, because `LOG_MODE_DEFERRED` is a Kconfig choice
+symbol and cannot be selected by another symbol.
+
+### Presets and naming
+
+USB presets follow `<board>_usb_<cent|peri>_a<antennas>_<paths>[_ipt]`: the
+`usb` transport token follows the board name, and the role token, antenna
+count, path count, and `_ipt` suffix keep their VCOM meaning. There is one USB
+preset per role and ranging mode (four on the DK), and the existing VCOM
+presets keep their names and composition. A USB preset sets `DTC_OVERLAY_FILE`
+to the role's USB overlay and includes the role's USB `.conf` fragment in
+`EXTRA_CONF_FILE` in place of the VCOM overlay and board fragment.
 
 ## Shared fragments already present
 
