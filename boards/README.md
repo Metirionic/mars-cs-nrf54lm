@@ -7,7 +7,7 @@ support change follows, so the shared firmware and CI stay board-agnostic.
 
 | Board | Build target | Overlay | Presets |
 |-------|--------------|---------|---------|
-| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` (VCOM) or `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` (native USB) | `nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, `nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`, `nrf54lm20dk_usb_cent_a1_1`, `nrf54lm20dk_usb_cent_a1_1_ipt` |
+| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` (VCOM) or `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_<role>.overlay` (native USB) | `nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, `nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`, `nrf54lm20dk_usb_cent_a1_1`, `nrf54lm20dk_usb_cent_a1_1_ipt`, `nrf54lm20dk_usb_peri_a1_1`, `nrf54lm20dk_usb_peri_a1_1_ipt` |
 
 Each supported board gets a row here and in the
 [hardware reference](../docs/hardware.md#supported-boards), which also carries
@@ -55,8 +55,9 @@ the wiring notes and the preset table.
      (`boards/<board>..._usb_<role>.overlay`) instead of the VCOM overlay. It
      declares the CDC ACM functions under `&zephyr_udc0` in interface order
      (initiator: data first via the `cobs-uart` chosen node, console second via
-     `zephyr,console`), sets the console chosen nodes to the console function,
-     and disables the UART nodes the USB build does not use.
+     `zephyr,console`; reflector: the single console function), sets the
+     console chosen nodes to the console function, and disables the UART nodes
+     the USB build does not use.
 
 2. **An optional board `.conf` fragment** (`boards/<board>.conf`) when the
    board needs board-level Kconfig, typically the RTT console backend:
@@ -67,7 +68,8 @@ the wiring notes and the preset table.
    CONFIG_UART_CONSOLE=n
    ```
    A native USB transport adds a role/transport fragment
-   (`boards/nrf54lm20dk_usb_initiator.conf` on the DK) that sets
+   (`boards/nrf54lm20dk_usb_initiator.conf` or
+   `boards/nrf54lm20dk_usb_reflector.conf` on the DK) that sets
    `CONFIG_MARS_CS_TRANSPORT_USB`, the role symbol, the USB stack and CDC ACM
    options, and deferred logging.
 

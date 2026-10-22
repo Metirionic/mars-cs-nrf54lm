@@ -48,7 +48,7 @@ RAS-vs-IPT contrast and per-mode data flow.
 ## Presets
 
 Builds are driven by CMake presets in `initiator/CMakePresets.json` and
-`reflector/CMakePresets.json`. The nRF54LM20-DK defines six:
+`reflector/CMakePresets.json`. The nRF54LM20-DK defines eight:
 
 | Preset | Role | Mode | Transport |
 |--------|------|------|-----------|
@@ -57,7 +57,9 @@ Builds are driven by CMake presets in `initiator/CMakePresets.json` and
 | `nrf54lm20dk_cent_a1_1_ipt` | Initiator | IPT | J-Link VCOM |
 | `nrf54lm20dk_peri_a1_1_ipt` | Reflector | IPT | J-Link VCOM |
 | `nrf54lm20dk_usb_cent_a1_1` | Initiator | RAS | Native USB |
+| `nrf54lm20dk_usb_peri_a1_1` | Reflector | RAS | Native USB |
 | `nrf54lm20dk_usb_cent_a1_1_ipt` | Initiator | IPT | Native USB |
+| `nrf54lm20dk_usb_peri_a1_1_ipt` | Reflector | IPT | Native USB |
 
 Preset names follow `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt`
 suffix for IPT and a `usb` transport token after the board name for native USB

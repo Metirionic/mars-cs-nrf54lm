@@ -55,7 +55,7 @@ Two firmware roles plus a shared library:
 `reflector/CMakeLists.txt`:
 
 - No `FetchContent`, no Rust, no `mars-bluetooth-hci-rust` — the reflector never serializes.
-- Pulls only `src/main.c`, `common/antenna.c`, and `common/cs_watchdog.c` directly into `app` (`:9-11`). It does **not** link `cs_common`.
+- Pulls only `src/main.c`, `common/antenna.c`, and `common/cs_watchdog.c` directly into `app` (`:9-11`), plus `common/mars_usb.c` for native USB builds (`:13-17`). It does **not** link `cs_common`.
 
 ### shared `common` library
 
@@ -68,7 +68,7 @@ headers without pulling the full Zephyr target (`:22`).
 **The `common` code is shared two different ways — call this out, it is not symmetric:**
 
 - The **initiator** links `cs_common` *and* additionally compiles `common/rust_callbacks.c` straight into `app`.
-- The **reflector** does **not** link `cs_common` at all — it compiles only `common/antenna.c` and `common/cs_watchdog.c` into its `app`. It needs just the antenna lookups and the liveness watchdog, none of the initiator-side CS/RAS machinery.
+- The **reflector** does **not** link `cs_common` at all — it compiles only `common/antenna.c` and `common/cs_watchdog.c` into its `app` (plus `common/mars_usb.c` in native USB builds). It needs just the antenna lookups, the liveness watchdog, and the USB console bring-up, none of the initiator-side CS/RAS machinery.
 
 `common/` source files:
 
@@ -81,7 +81,7 @@ headers without pulling the full Zephyr target (`:22`).
 | `cs_initiator.{c,h}` | "Shared Channel Sounding initiator connection and configuration flow" — the heart of the initiator: all setup semaphores, the step-data net buffers, the RAS feature bits, the MACs, and `cs_initiator_start()` which runs the full setup handshake; also defines the local `subevent_result_cb`. |
 | `cs_step_parse.{c,h}` | "Shared CS step data parsing into SubeventResultEvent structures" — `cs_step_parse()` (RAS) converts local + peer HCI Mode-2 step records into the Rust FFI `SubeventResultEvent_t` / `Step_t` / `Mode2_t` fields; also populates the Mode-0 calibration steps (kind per role from the step `data_len`, measured frequency offset passed through raw); `cs_step_parse_inline()` (IPT) parses the local steps only and synthesizes the peer event per step with a transparent identity (1.0 + 0.0j) Phase Correction Term for Mode-2 and a zeroed `MODE0_REFLECTOR` step for Mode-0, so the downstream combiner sees a structurally valid `ORIGIN_REFLECTOR` event with a no-op phase rotation. |
 | `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector); on timeout it invokes the registered recovery callback (both apps force a disconnect that reboots the pair). Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
-| `mars_usb.{c,h}` | "Shared native USB bring-up module" — the single USB device context, string descriptors (product/PID by role, SoC-derived serial), full-speed and high-speed configurations, CDC ACM class registration, VBUS policy, and `mars_usb_init()`. Compiled into `cs_common` only when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. |
+| `mars_usb.{c,h}` | "Shared native USB bring-up module" — the single USB device context, string descriptors (product/PID by role, SoC-derived serial), full-speed and high-speed configurations, CDC ACM class registration, VBUS policy, and `mars_usb_init()`. Compiled into `cs_common` (initiator) and directly into the reflector `app` only when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. |
 | `subevent.{c,h}` | "CS subevent data parsing into SubeventResultEvent structures" — `subevent_populate()` (RAS) fills the initiator + reflector events from both the local and peer step buffers via `cs_step_parse()`; `subevent_populate_inline()` (IPT) fills them from the local step buffer only via `cs_step_parse_inline()` (the reflector's phase contribution is embedded in the local tones, so there is no peer buffer). Both seed the shared header through `fill_subevent_header()`. |
 | `rust_callbacks.c` | "Shared Rust FFI callback implementations" — the C functions the Rust runtime calls back into (`rust_panic_cb`, `rust_print_cb`). Compiled into the initiator `app` only. |
 
@@ -531,10 +531,11 @@ entirely board-owned — no model-specific assignment lives in shared code.
 
 **Presets → `west build`.** `CMakePresets.json` (per app) is the source of truth
 for the preset → (board, overlay, conf-fragment) mapping.
-`initiator/CMakePresets.json` defines the two initiator presets
-(`nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`) and
-`reflector/CMakePresets.json` the two reflector presets
-(`nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`).
+`initiator/CMakePresets.json` defines the four initiator presets
+(`nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, and their
+`nrf54lm20dk_usb_*` counterparts) and `reflector/CMakePresets.json` the four
+reflector presets (`nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`, and
+their `nrf54lm20dk_usb_*` counterparts).
 `ci/common.sh` (`parse_preset`) reads the file with a small Python snippet and
 extracts `BOARD`, `CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` from
 `cacheVariables`, resolving each path relative to the app dir.
