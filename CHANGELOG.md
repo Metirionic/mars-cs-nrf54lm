@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.5.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.5.0) - 2026-10-22
+#### Features
+- add native USB transport to the two-DK bench harness - ([8d96ac2](https://github.com/Metirionic/mars-cs-nrf54lm/commit/8d96ac2501982486d20237ca01c7e74df37cda03)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.4.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.4.0) - 2026-10-22
 #### Features
 - add reflector native USB console - ([854fa0a](https://github.com/Metirionic/mars-cs-nrf54lm/commit/854fa0a232b843a1ce9721710c4b950fb60e5a64)) - AttilaRoemer, Claude Code
