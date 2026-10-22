@@ -17,6 +17,11 @@
 #      out of the docs (or dropped from the build but left in the docs) is
 #      caught. The check is skipped while both preset arrays are empty (the
 #      pre-board scaffold state).
+#   4. Every image the release archive carries must be named in
+#      docs/flash-quickstart.md. ci/build.sh names each artifact
+#      <app>_<preset>.hex, so every preset must appear as
+#      `initiator_<preset>.hex` or `reflector_<preset>.hex` in the quickstart;
+#      a new preset (or a removed one) cannot leave the image table stale.
 #
 # External http(s)/mailto: URLs are deliberately NOT checked (out of scope; they
 # would add network flakiness). Only internal links and the
@@ -332,6 +337,79 @@ the preset)"
   fi
 }
 
+# --- release-image cross-reference ------------------------------------------
+
+# release_images_for_app <app> <preset-names> -> one <app>_<preset>.hex per
+# line. ci/build.sh names each artifact from the app directory basename and the
+# preset, and release.yml zips release/*.hex, so this is the archive content.
+release_images_for_app() {
+  local app="$1" names="$2" p
+
+  while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
+    printf '%s_%s.hex\n' "$app" "$p"
+  done <<< "$names"
+}
+
+# Assert the flash quickstart's image table matches the release archive: every
+# preset image is named (a new preset cannot be left out), and every image the
+# quickstart names is still produced (a removed preset cannot leave a stale
+# row). The check is skipped while both preset arrays are empty (the pre-board
+# scaffold state).
+check_release_images() {
+  local fq="docs/flash-quickstart.md"
+  local before=$errors
+  local init_names refl_names expected_images image
+
+  if [[ ! -f "$fq" ]]; then
+    add_error "release-image check: source '$fq' not found"
+    return 0
+  fi
+  if [[ ! -f "initiator/CMakePresets.json" ]]; then
+    add_error "release-image check: source 'initiator/CMakePresets.json' not found"
+  fi
+  if [[ ! -f "reflector/CMakePresets.json" ]]; then
+    add_error "release-image check: source 'reflector/CMakePresets.json' not found"
+  fi
+  if (( errors > before )); then
+    return 0
+  fi
+
+  init_names="$(preset_names_from_json "initiator/CMakePresets.json")"
+  refl_names="$(preset_names_from_json "reflector/CMakePresets.json")"
+
+  if [[ -z "$init_names" && -z "$refl_names" ]]; then
+    printf 'release-image check skipped: no configurePresets defined yet (pre-board scaffold)\n'
+    return 0
+  fi
+
+  expected_images="$(
+    release_images_for_app initiator "$init_names"
+    release_images_for_app reflector "$refl_names"
+  )"
+
+  # Direction (a): every image the archive carries must be in the quickstart.
+  while IFS= read -r image; do
+    [[ -z "$image" ]] && continue
+    grep -qF "\`${image}\`" "$fq" \
+      || add_error "release image '${image}' is missing from '$fq' — \
+the quickstart must name every image in the release archive"
+  done <<< "$expected_images"
+
+  # Direction (b): every image the quickstart names must still be produced.
+  while IFS= read -r image; do
+    [[ -z "$image" ]] && continue
+    if ! grep -qxF "$image" <<< "$expected_images"; then
+      add_error "release image '${image}' is listed in '$fq' but no preset produces it \
+(drop the row or restore the preset)"
+    fi
+  done < <(grep -oE '`[A-Za-z0-9._-]+\.hex`' "$fq" | sed -E 's/`//g' | sort -u)
+
+  if (( errors == before )); then
+    printf 'release-image table consistent: docs/flash-quickstart.md matches the preset images in both CMakePresets.json\n'
+  fi
+}
+
 # --- main -------------------------------------------------------------------
 
 # Scope per issue #16: README.md + docs/*.md, tracked files only. git ls-files
@@ -388,6 +466,8 @@ check_release_artifact
 
 check_preset_table
 
+check_release_images
+
 # --- report -----------------------------------------------------------------
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -399,7 +479,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       printf '  - %s\n' "${summary_lines[@]}"
       printf '```\n'
     else
-      printf '**Passed** — all internal links, the release-artifact name, and the preset table are consistent.\n'
+      printf '**Passed** — all internal links, the release-artifact name, the preset table, and the release-image table are consistent.\n'
     fi
   } >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
 fi
@@ -408,4 +488,4 @@ if (( errors > 0 )); then
   printf 'docs check failed: %d broken link(s)/reference(s) found (see above)\n' "$errors" >&2
   exit 1
 fi
-printf 'docs check passed: all internal links, the release-artifact name, and the preset table are consistent\n'
+printf 'docs check passed: all internal links, the release-artifact name, the preset table, and the release-image table are consistent\n'
