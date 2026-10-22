@@ -80,8 +80,8 @@ disk — do not conflate them:
 ## Build the firmware
 
 Activate the venv and build a preset the same way CI does. The nRF54LM20-DK
-defines two RAS and two IPT presets (see the
-[preset table](hardware.md#presets)):
+defines four RAS and four IPT presets — J-Link VCOM and native USB for each
+role (see the [preset table](hardware.md#presets)):
 
 ```bash
 source ~/.ncs-venv/bin/activate

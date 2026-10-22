@@ -45,10 +45,12 @@ LOG_MODULE_REGISTER(mars_usb, LOG_LEVEL_INF);
 #define MARS_USB_PID               0x0001
 #define MARS_USB_PRODUCT           "Mars CS Initiator"
 #define MARS_USB_NUM_CDC_FUNCTIONS 2
+#define MARS_USB_CDC0_FUNCTION     "data"
 #else
 #define MARS_USB_PID               0x0002
 #define MARS_USB_PRODUCT           "Mars CS Reflector"
 #define MARS_USB_NUM_CDC_FUNCTIONS 1
+#define MARS_USB_CDC0_FUNCTION     "console"
 #endif
 
 #define MARS_USB_MANUFACTURER "Metirionic"
@@ -98,7 +100,7 @@ static int mars_usb_register_classes(struct usbd_context * p_ctx, enum usbd_spee
 
     if (err)
     {
-        LOG_ERR("Failed to register CDC ACM data function (err %d)", err);
+        LOG_ERR("Failed to register CDC ACM %s function (err %d)", MARS_USB_CDC0_FUNCTION, err);
         return err;
     }
 

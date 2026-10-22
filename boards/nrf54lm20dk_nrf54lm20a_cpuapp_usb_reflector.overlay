@@ -1,0 +1,46 @@
+/*
+ * Copyright (c) 2026 Metirionic
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
+ * nRF54LM20-DK native USB transport for the reflector.
+ *
+ * The reflector enumerates as a single CDC ACM console function: the role
+ * emits no COBS stream, so there is deliberately no data function and no
+ * cobs-uart chosen node. The console is output-only; deferred logging writes
+ * to it without ever blocking the firmware.
+ *
+ * Both VCOM UARTs are disabled: a USB build must not carry unused UART
+ * drivers or pin assignments. The VCOM board overlay stays unchanged and is
+ * not applied by the nrf54lm20dk_usb_peri_* presets.
+ */
+
+/ {
+	chosen {
+		zephyr,console = &cdc_console;
+		zephyr,shell-uart = &cdc_console;
+		zephyr,uart-mcumgr = &cdc_console;
+		zephyr,bt-mon-uart = &cdc_console;
+		zephyr,bt-c2h-uart = &cdc_console;
+	};
+};
+
+&zephyr_udc0 {
+	cdc_console: cdc_console {
+		compatible = "zephyr,cdc-acm-uart";
+		label = "Console";
+		tx-fifo-size = <1024>;
+		rx-fifo-size = <64>;
+	};
+};
+
+/* VCOM0 (COBS in initiator VCOM builds) and VCOM1 (console in VCOM builds). */
+&uart30 {
+	status = "disabled";
+};
+
+&uart20 {
+	status = "disabled";
+};
