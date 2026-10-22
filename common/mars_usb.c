@@ -92,7 +92,10 @@ static bool g_initialized;
  *
  * The overlay declares the functions in interface order: instance 0 is the
  * COBS data function for the initiator (chosen `cobs-uart`) and instance 1
- * the console (chosen `zephyr,console`). The reflector has only the console.
+ * the console. In release builds the console instance is the chosen
+ * `zephyr,console`; the non-release debug posture moves the chosen console to
+ * the J-Link VCOM and leaves this instance registered but unused. The
+ * reflector has only the console.
  */
 static int mars_usb_register_classes(struct usbd_context * p_ctx, enum usbd_speed speed)
 {

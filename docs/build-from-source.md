@@ -106,9 +106,12 @@ prefix is needed when run from inside a west workspace (e.g. the repo root,
 which is the manifest project *inside* the workspace — west walks up to the
 parent's `.west/`). An explicit `NCS_DIR` still overrides both fallbacks.
 
-If you drive `west build` by hand instead, pass the same `CONF_FILE`,
-`EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` values the preset carries, and use a
-preset-specific `-d` build directory. A bare `west build` (no `-d`) uses a
+If you drive `west build` by hand for a preset build instead, pass the same
+`CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` values the preset
+carries, and use a preset-specific `-d` build directory. The non-release debug
+variant in
+[Non-release USB debug console (J-Link VCOM)](#non-release-usb-debug-console-j-link-vcom)
+is the one deliberate exception — it has no preset. A bare `west build` (no `-d`) uses a
 single `./build/` and the two apps collide:
 
 ```
@@ -147,6 +150,47 @@ reports the controller's applied interval when CS procedures are enabled
 (`procedure interval: 2` on the DK, versus `10` at the default). This is a
 bench lever only — there is no runtime command surface, and release builds
 keep the default.
+
+### Non-release USB debug console (J-Link VCOM)
+
+For bring-up, the native USB initiator can keep its COBS stream on the USB data
+function while moving the log console back to the DK's J-Link VCOM1. Boot,
+pre-enumeration, and hard-fault output then stay visible when USB has not
+enumerated. This posture is deliberately **not** a release preset: CI and the
+release workflow enumerate every preset via `ci/list-presets.sh`, so a debug
+preset would be built and shipped. Build it only with this manual command:
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_1_debug \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/nrf54lm20dk_usb_initiator_debug.conf;../boards/1_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE="../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay;../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay"
+```
+
+The overlay order is load-bearing: the debug overlay is applied **after** the
+USB initiator overlay and re-points the console chosen nodes at `uart20`
+(VCOM1, 115200 baud), while `cobs-uart` stays on the CDC ACM data function.
+Open the J-Link VCOM1 for logs and the native USB data function (`if00`) for
+the COBS stream. The USB console function (`if02`) remains enumerated but
+carries no log output in this variant.
+
+The debug overlay and fragment are mode-independent. For an IPT debug build,
+put `inline_pct_initiator.conf` and `inline_pct_shared.conf` after
+`central.overlay` and before the USB fragments, exactly as the `_ipt` preset
+does.
+
+Confirm the posture in the generated configuration
+(`initiator/build_nrf54lm20dk_usb_cent_a1_1_debug/initiator/zephyr/.config`):
+
+```text
+CONFIG_MARS_CS_TRANSPORT_USB=y
+CONFIG_MARS_CS_ROLE_INITIATOR=y
+CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM=y
+```
+
+This image is not built by CI and is never part of
+`cs-ranging-firmware.zip`. Do not add it to `CMakePresets.json`.
 
 ### Multiple presets (driven like CI)
 

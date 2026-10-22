@@ -25,7 +25,10 @@ Each release publishes one archive, `cs-ranging-firmware.zip`, containing one
 | `reflector_nrf54lm20dk_usb_peri_a1_1_ipt.hex` | Reflector | IPT | Native USB |
 
 Each image is the build of the preset with the same name (see
-[docs/hardware.md](hardware.md#presets)).
+[docs/hardware.md](hardware.md#presets)). The archive contains no debug builds:
+the non-release initiator debug variant (COBS on native USB, logs on the J-Link
+VCOM) is documented in
+[docs/build-from-source.md](build-from-source.md#non-release-usb-debug-console-j-link-vcom).
 
 ## 1. Download the archive
 

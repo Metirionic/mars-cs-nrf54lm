@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) 2026 Metirionic
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+/*
+ * nRF54LM20-DK native USB initiator — NON-RELEASE debug console variant.
+ *
+ * Apply this overlay AFTER nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay,
+ * as a later entry in the DTC_OVERLAY_FILE list:
+ *
+ *   -DDTC_OVERLAY_FILE="../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay;../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay"
+ *
+ * The COBS ranging stream is untouched: the base overlay's chosen
+ * cobs-uart = &cdc_data still points at the native USB data function. Only the
+ * log console moves back to the onboard debugger's VCOM1 (uart20, 115200 baud
+ * from the board definition), so boot, pre-enumeration, and hard-fault output
+ * are visible while USB has not enumerated — or after it has faulted.
+ *
+ * The USB console function declared by the base overlay stays in the
+ * descriptor (the device is still the two-function composite), but nothing
+ * writes to it in this variant. The matching Kconfig fragment sets
+ * CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM, which relaxes the USB COBS backend's
+ * console-is-instance-1 assertion to "chosen console is not CDC ACM".
+ *
+ * All console chosen nodes follow the console, not just zephyr,console: a
+ * shell, MCUmgr, or BT monitor enabled in a debug build must not silently stay
+ * on the unused USB console function.
+ *
+ * This overlay is not applied by any CMake preset. Do not add it to
+ * CMakePresets.json: CI and the release workflow enumerate every preset via
+ * ci/list-presets.sh and would ship the debug image.
+ */
+
+/ {
+	chosen {
+		zephyr,console = &uart20;
+		zephyr,shell-uart = &uart20;
+		zephyr,uart-mcumgr = &uart20;
+		zephyr,bt-mon-uart = &uart20;
+		zephyr,bt-c2h-uart = &uart20;
+	};
+};
+
+/*
+ * J-Link VCOM1, the console in VCOM builds. current-speed and pinctrl come
+ * from the board definition. uart30 (VCOM0) stays disabled: the COBS data
+ * path is on native USB in this variant.
+ */
+&uart20 {
+	status = "okay";
+};

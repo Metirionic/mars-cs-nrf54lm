@@ -120,7 +120,9 @@ presets. In both overlays:
   `compatible = "zephyr,cdc-acm-uart"`.
 - Set every console chosen node (`zephyr,console`, `zephyr,shell-uart`,
   `zephyr,uart-mcumgr`, `zephyr,bt-mon-uart`, `zephyr,bt-c2h-uart`) to the
-  console function.
+  console function — except in the non-release debug console fragment below,
+  which re-points them at the board's J-Link console UART while the COBS
+  `cobs-uart` stays on the USB data function.
 - Disable every UART node the USB build does not use, so the build carries no
   unused UART drivers or pin assignments. On the DK that is `&uart30` (VCOM0)
   and `&uart20` (VCOM1).
@@ -146,6 +148,36 @@ The reflector overlay declares exactly one function — the console. It has no
 the number of CDC ACM nodes matches the role's function count, so a mismatch
 fails at build time.
 
+### Debug console fragment (non-release)
+
+The initiator may additionally apply a non-release debug posture that keeps the
+COBS stream on the native USB data function but moves the log console back to
+the board's J-Link console UART. It exists for bring-up: boot, pre-enumeration,
+and hard-fault output stay visible on the onboard debugger even when USB has
+not enumerated.
+
+On the DK this is two files layered on the standard USB composition:
+
+| File | Purpose |
+|------|---------|
+| `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay` | Re-enables `&uart20` (VCOM1) and points the console chosen nodes at it; `cobs-uart` stays `&cdc_data` |
+| `boards/nrf54lm20dk_usb_initiator_debug.conf` | Sets `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM=y` |
+
+Apply the overlay *after* the role overlay, as a later entry in the
+semicolon-separated `DTC_OVERLAY_FILE` list, and the fragment after the USB
+board fragment in `EXTRA_CONF_FILE`. `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM`
+marks the posture for the initiator's USB COBS backend, which then asserts that
+the data function is still CDC ACM instance 0 and that the chosen console is
+not CDC ACM.
+
+The variant is deliberately not a CMake preset. CI and the release workflow
+enumerate every preset via `ci/list-presets.sh` and package every resulting
+image, so a debug preset would ship in the release archive. The manual
+`west build` command is documented in
+[docs/build-from-source.md](../docs/build-from-source.md#non-release-usb-debug-console-j-link-vcom).
+The USB console function remains in the descriptor (the device is still the
+two-function composite) but receives no log output.
+
 ### Transport Kconfig
 
 Add `boards/<board>_usb_<role>.conf` and apply it from the USB presets. The
@@ -168,7 +200,8 @@ The initiator fragment also sets `CONFIG_RING_BUFFER_LARGE=y`: its 32 KiB data
 TX ring exceeds the default 32,767-byte ring-buffer limit. A board must not
 size the data function below one whole run. `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS`
 (default 250 ms) bounds the host-stall wait and normally needs no board
-override.
+override. `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM` is not part of the release
+composition; only the non-release debug fragment above sets it.
 
 Deferred logging is set by the board fragment rather than selected by
 `CONFIG_MARS_CS_TRANSPORT_USB`, because `LOG_MODE_DEFERRED` is a Kconfig choice

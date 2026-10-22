@@ -43,12 +43,23 @@ LOG_MODULE_DECLARE(app_main, LOG_LEVEL_INF);
  * initiator's data function must be instance 0 (chosen cobs-uart) and the
  * console instance 1, because the descriptor order is what the host's stable
  * by-id names (if00 data, if02 console) expose.
+ *
+ * The non-release debug posture (CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM) moves only
+ * the log console to the J-Link VCOM: the data function stays instance 0 and
+ * must still be the chosen cobs-uart, while the chosen console must not be a
+ * CDC ACM function at all. The USB console function remains instance 1 in the
+ * descriptor but nothing writes to it.
  */
 #if IS_ENABLED(CONFIG_MARS_CS_ROLE_INITIATOR)
 BUILD_ASSERT(DT_DEP_ORD(DT_CHOSEN(cobs_uart)) == DT_DEP_ORD(DT_DRV_INST(0)),
              "cobs-uart must be the first CDC ACM function (data first, console second)");
+#if IS_ENABLED(CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM)
+BUILD_ASSERT(!DT_NODE_HAS_COMPAT(DT_CHOSEN(zephyr_console), zephyr_cdc_acm_uart),
+             "The USB debug console must be a non-CDC-ACM UART (the J-Link VCOM on the DK)");
+#else
 BUILD_ASSERT(DT_DEP_ORD(DT_CHOSEN(zephyr_console)) == DT_DEP_ORD(DT_DRV_INST(1)),
              "zephyr,console must be the second CDC ACM function (data first, console second)");
+#endif
 #endif
 
 /** @brief CDC ACM data UART (the cobs-uart chosen node). */

@@ -108,6 +108,21 @@ alternatives are recorded in
   programming and recovery remain SWD-only. The USBHS controller is
   device-only; USB host mode is not available.
 
+### Non-release debug console variant
+
+For bring-up, the initiator can be built with the log console back on the
+J-Link VCOM1 (`uart20`, 115200 baud) while the COBS stream stays on the native
+USB data function (`if00`). Boot, pre-enumeration, and hard-fault output are
+then visible on the onboard debugger before USB enumerates. The variant is two
+non-release files
+(`boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay` and
+`boards/nrf54lm20dk_usb_initiator_debug.conf`) layered on the standard USB
+composition; `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM` marks the posture. It is
+deliberately not a CMake preset, so it is not built by CI and not included in
+`cs-ranging-firmware.zip`. The USB console function (`if02`) remains
+enumerated but carries no logs. The manual build command is in
+[docs/build-from-source.md](build-from-source.md#non-release-usb-debug-console-j-link-vcom).
+
 ### NCS constraints and known limitations
 
 - **NCSDK-38624** — CDC ACM serial initialization at boot can hang an
