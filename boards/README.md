@@ -7,7 +7,7 @@ support change follows, so the shared firmware and CI stay board-agnostic.
 
 | Board | Build target | Overlay | Presets |
 |-------|--------------|---------|---------|
-| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` (VCOM) or `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_<role>.overlay` (native USB) | `nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, `nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`, `nrf54lm20dk_usb_cent_a1_1`, `nrf54lm20dk_usb_cent_a1_1_ipt`, `nrf54lm20dk_usb_peri_a1_1`, `nrf54lm20dk_usb_peri_a1_1_ipt` |
+| nRF54LM20-DK | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` (VCOM) or `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_<role>.overlay` (native USB) | `nrf54lm20dk_cent_a1_4`, `nrf54lm20dk_cent_a1_4_ipt`, `nrf54lm20dk_peri_a1_4`, `nrf54lm20dk_peri_a1_4_ipt`, `nrf54lm20dk_usb_cent_a1_4`, `nrf54lm20dk_usb_cent_a1_4_ipt`, `nrf54lm20dk_usb_peri_a1_4`, `nrf54lm20dk_usb_peri_a1_4_ipt` |
 
 Each supported board gets a row here and in the
 [hardware reference](../docs/hardware.md#supported-boards), which also carries
@@ -82,7 +82,11 @@ the wiring notes and the preset table.
 
    Preset names follow `<board>[_usb]_<cent|peri>_a<antennas>_<paths>[_ipt]`.
    A USB preset uses the role's USB overlay and USB board fragment in place of
-   the VCOM ones; see [Presets and naming](#presets-and-naming).
+   the VCOM ones; see [Presets and naming](#presets-and-naming). Every preset
+   a board ships must use the antenna/path fragment that matches its product
+   policy. On the DK that is `4_path_1_local.conf`: one antenna, four-path
+   capability, so the firmware can accept a peer's multi-antenna tone
+   configuration (see [Antenna-path policy](#antenna-path-policy)).
 
 4. **Documentation** — a row per board in `docs/hardware.md` and, when the
    board has non-obvious wiring, a wiring-notes subsection.
@@ -212,8 +216,9 @@ symbol and cannot be selected by another symbol.
 USB presets follow `<board>_usb_<cent|peri>_a<antennas>_<paths>[_ipt]`: the
 `usb` transport token follows the board name, and the role token, antenna
 count, path count, and `_ipt` suffix keep their VCOM meaning. There is one USB
-preset per role and ranging mode (four on the DK), and the existing VCOM
-presets keep their names and composition. A USB preset sets `DTC_OVERLAY_FILE`
+preset per role and ranging mode (four on the DK); the VCOM presets keep the
+VCOM overlay and board fragment, and the antenna-path policy applies to both
+transports. A USB preset sets `DTC_OVERLAY_FILE`
 to the role's USB overlay and includes the role's USB `.conf` fragment in
 `EXTRA_CONF_FILE` in place of the VCOM overlay and board fragment.
 
@@ -227,3 +232,20 @@ to the role's USB overlay and includes the role's USB `.conf` fragment in
 | `inline_pct_initiator.conf` | IPT mode for the initiator (drops RAS/GATT) |
 | `inline_pct_reflector.conf` | IPT mode for the reflector (drops RAS responder) |
 | `inline_pct_shared.conf` | IPT reflector device name (initiator scans for it) |
+
+The fragments are shared building blocks, not a preset list. Every preset the
+DK ships uses `4_path_1_local.conf`; the others stay available for a board
+whose antenna count or product policy differs.
+
+## Antenna-path policy
+
+Every nRF54LM20-DK image is built for four antenna paths and one local antenna.
+The DK has a single antenna, so the local device always contributes one path;
+the four-path maximum is what lets the controller negotiate a tone
+configuration that follows the **peer's** antenna count (from the initiator's
+side, `A1_B1` against a one-antenna peer up to `A1_B4` against a four-antenna
+peer; the reflector's view of the same link is `An_B1`). The path count in the
+preset name is the capability, not the number of physical antennas. The policy
+leaves the COBS run buffer, USB data FIFO and Channel Sounding reassembly buffer
+unchanged; the fixed-size rationale is recorded in
+[docs/hardware.md](../docs/hardware.md#antenna-path-policy).

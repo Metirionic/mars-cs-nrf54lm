@@ -15,17 +15,23 @@ Each release publishes one archive, `cs-ranging-firmware.zip`, containing one
 
 | Firmware | Role | Mode | Transport |
 |----------|------|------|-----------|
-| `initiator_nrf54lm20dk_cent_a1_1.hex` | Initiator | RAS | J-Link VCOM |
-| `reflector_nrf54lm20dk_peri_a1_1.hex` | Reflector | RAS | J-Link VCOM |
-| `initiator_nrf54lm20dk_cent_a1_1_ipt.hex` | Initiator | IPT | J-Link VCOM |
-| `reflector_nrf54lm20dk_peri_a1_1_ipt.hex` | Reflector | IPT | J-Link VCOM |
-| `initiator_nrf54lm20dk_usb_cent_a1_1.hex` | Initiator | RAS | Native USB |
-| `reflector_nrf54lm20dk_usb_peri_a1_1.hex` | Reflector | RAS | Native USB |
-| `initiator_nrf54lm20dk_usb_cent_a1_1_ipt.hex` | Initiator | IPT | Native USB |
-| `reflector_nrf54lm20dk_usb_peri_a1_1_ipt.hex` | Reflector | IPT | Native USB |
+| `initiator_nrf54lm20dk_cent_a1_4.hex` | Initiator | RAS | J-Link VCOM |
+| `reflector_nrf54lm20dk_peri_a1_4.hex` | Reflector | RAS | J-Link VCOM |
+| `initiator_nrf54lm20dk_cent_a1_4_ipt.hex` | Initiator | IPT | J-Link VCOM |
+| `reflector_nrf54lm20dk_peri_a1_4_ipt.hex` | Reflector | IPT | J-Link VCOM |
+| `initiator_nrf54lm20dk_usb_cent_a1_4.hex` | Initiator | RAS | Native USB |
+| `reflector_nrf54lm20dk_usb_peri_a1_4.hex` | Reflector | RAS | Native USB |
+| `initiator_nrf54lm20dk_usb_cent_a1_4_ipt.hex` | Initiator | IPT | Native USB |
+| `reflector_nrf54lm20dk_usb_peri_a1_4_ipt.hex` | Reflector | IPT | Native USB |
 
 Each image is the build of the preset with the same name (see
-[docs/hardware.md](hardware.md#presets)). The archive contains no debug builds:
+[docs/hardware.md](hardware.md#presets)). The `a1_4` in every name means the
+DK's one antenna and a four-path capability: the local board always contributes
+one antenna, and the path count in a procedure follows the peer's antenna count
+(from the initiator's side, `A1_B1` against a one-antenna peer up to `A1_B4`;
+the reflector's view is `An_B1`). See
+[docs/hardware.md](hardware.md#antenna-path-policy). The archive contains no
+debug builds:
 the non-release initiator debug variant (COBS on native USB, logs on the J-Link
 VCOM) is documented in
 [docs/build-from-source.md](build-from-source.md#non-release-usb-debug-console-j-link-vcom).
@@ -52,14 +58,14 @@ For a native USB RAS pair:
 
 | DK | Firmware |
 |----|----------|
-| DK A (initiator) | `initiator_nrf54lm20dk_usb_cent_a1_1.hex` |
-| DK B (reflector) | `reflector_nrf54lm20dk_usb_peri_a1_1.hex` |
+| DK A (initiator) | `initiator_nrf54lm20dk_usb_cent_a1_4.hex` |
+| DK B (reflector) | `reflector_nrf54lm20dk_usb_peri_a1_4.hex` |
 
 For a native USB IPT pair, use
-`initiator_nrf54lm20dk_usb_cent_a1_1_ipt.hex` and
-`reflector_nrf54lm20dk_usb_peri_a1_1_ipt.hex` instead. For a VCOM pair, use
-the non-USB images: `initiator_nrf54lm20dk_cent_a1_1.hex` with
-`reflector_nrf54lm20dk_peri_a1_1.hex` (RAS), or the `_ipt` images (IPT).
+`initiator_nrf54lm20dk_usb_cent_a1_4_ipt.hex` and
+`reflector_nrf54lm20dk_usb_peri_a1_4_ipt.hex` instead. For a VCOM pair, use
+the non-USB images: `initiator_nrf54lm20dk_cent_a1_4.hex` with
+`reflector_nrf54lm20dk_peri_a1_4.hex` (RAS), or the `_ipt` images (IPT).
 
 Program each DK through its on-board J-Link, for example with the nRF Connect
 Programmer app or Nordic's `nrfutil device program --firmware <file>.hex`.
@@ -184,13 +190,13 @@ Power both DKs and keep them close. The initiator scans for its peer and starts
 Channel Sounding; the first completed procedure produces the first COBS event
 on its data port.
 
-- **RAS** — initiator `nrf54lm20dk_usb_cent_a1_1` with reflector
-  `nrf54lm20dk_usb_peri_a1_1` on native USB, or
-  `nrf54lm20dk_cent_a1_1` with `nrf54lm20dk_peri_a1_1` on VCOM. The initiator
+- **RAS** — initiator `nrf54lm20dk_usb_cent_a1_4` with reflector
+  `nrf54lm20dk_usb_peri_a1_4` on native USB, or
+  `nrf54lm20dk_cent_a1_4` with `nrf54lm20dk_peri_a1_4` on VCOM. The initiator
   pulls the reflector's step data over the Ranging Service.
-- **IPT** — initiator `nrf54lm20dk_usb_cent_a1_1_ipt` with reflector
-  `nrf54lm20dk_usb_peri_a1_1_ipt` on native USB, or
-  `nrf54lm20dk_cent_a1_1_ipt` with `nrf54lm20dk_peri_a1_1_ipt` on VCOM. The
+- **IPT** — initiator `nrf54lm20dk_usb_cent_a1_4_ipt` with reflector
+  `nrf54lm20dk_usb_peri_a1_4_ipt` on native USB, or
+  `nrf54lm20dk_cent_a1_4_ipt` with `nrf54lm20dk_peri_a1_4_ipt` on VCOM. The
   reflector's phase contribution is embedded in the local tones; no GATT
   service is used.
 

@@ -117,12 +117,14 @@ programming and debugging path only.
 - Programming and recovery stay on SWD. The device exposes no USB bootloader or
   DFU interface, and MCUboot is not used; the USBHS controller is device-only,
   so USB host mode is not available either.
-- The four VCOM preset names, their build composition, and their artifacts are
-  unchanged. Four USB presets are added alongside them
-  (`nrf54lm20dk_usb_cent_a1_1`, `nrf54lm20dk_usb_cent_a1_1_ipt`,
-  `nrf54lm20dk_usb_peri_a1_1`, `nrf54lm20dk_usb_peri_a1_1_ipt`), so every release
-  ships both transports. USB preset names follow the same
-  `<board>_usb_<cent|peri>_a<antennas>_<paths>[_ipt]` rule as the VCOM presets.
+- The four VCOM presets and their composition were not part of this decision.
+  Four USB presets are added alongside them (`nrf54lm20dk_usb_cent_a1_4`,
+  `nrf54lm20dk_usb_cent_a1_4_ipt`, `nrf54lm20dk_usb_peri_a1_4`,
+  `nrf54lm20dk_usb_peri_a1_4_ipt`), so every release ships both transports. USB
+  preset names follow the same `<board>_usb_<cent|peri>_a<antennas>_<paths>[_ipt]`
+  rule as the VCOM presets. (The four-path policy later renamed all eight
+  presets from `a1_1` to `a1_4`; see
+  [docs/hardware.md](../hardware.md#antenna-path-policy).)
 - A non-release debug posture re-points the log console at the board's J-Link
   console UART while leaving the COBS data function — and therefore the
   ranging stream — on native USB. It is selected by

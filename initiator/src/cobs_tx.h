@@ -18,6 +18,12 @@
  * standalone log frame and margin. The serializer sizes its run buffer with
  * this value and the USB backend sizes its full-run ring with it, so a run
  * can always be enqueued atomically.
+ *
+ * The size is independent of CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS: the
+ * mars-bluetooth-hci wire format's Mode2 tone arrays are fixed at
+ * MAX_ANTENNA_PATH_COUNT + 1 entries (four paths plus the extension slot), so
+ * the four-path product policy leaves this buffer unchanged. See the
+ * antenna-path policy in docs/hardware.md.
  */
 #define COBS_TX_RUN_MAX_SIZE 29000u
 

@@ -87,12 +87,12 @@ role (see the [preset table](hardware.md#presets)):
 source ~/.ncs-venv/bin/activate
 
 # RAS pair
-bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_1
-bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_1
+bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_4
+bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_4
 
 # IPT pair
-bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_1_ipt
-bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_1_ipt
+bash ci/build.sh --target initiator --preset nrf54lm20dk_cent_a1_4_ipt
+bash ci/build.sh --target reflector --preset nrf54lm20dk_peri_a1_4_ipt
 ```
 
 Channel Sounding needs **both** an initiator and a reflector, so build a
@@ -134,16 +134,16 @@ tightens the cadence about fivefold against the default. Build it into a
 separate build directory so the preset build stays at the default:
 
 ```bash
-west build -p always -d initiator/build_nrf54lm20dk_cent_a1_1_interval1 \
+west build -p always -d initiator/build_nrf54lm20dk_cent_a1_4_interval1 \
   -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
   -DCONF_FILE=prj.conf \
-  -DEXTRA_CONF_FILE="central.overlay;../boards/1_path_1_local.conf" \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/4_path_1_local.conf" \
   -DDTC_OVERLAY_FILE=../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay \
   -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
 ```
 
 Confirm the override landed in the generated configuration
-(`initiator/build_nrf54lm20dk_cent_a1_1_interval1/initiator/zephyr/.config`
+(`initiator/build_nrf54lm20dk_cent_a1_4_interval1/initiator/zephyr/.config`
 contains `CONFIG_MARS_CS_PROCEDURE_INTERVAL=1`). The initiator console then
 reports the controller's applied interval when CS procedures are enabled
 (`procedure interval: 2` on the DK, versus `10` at the default). This is a
@@ -160,10 +160,10 @@ release workflow enumerate every preset via `ci/list-presets.sh`, so a debug
 preset would be built and shipped. Build it only with this manual command:
 
 ```bash
-west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_1_debug \
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_4_debug \
   -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
   -DCONF_FILE=prj.conf \
-  -DEXTRA_CONF_FILE="central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/nrf54lm20dk_usb_initiator_debug.conf;../boards/1_path_1_local.conf" \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/nrf54lm20dk_usb_initiator_debug.conf;../boards/4_path_1_local.conf" \
   -DDTC_OVERLAY_FILE="../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay;../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay"
 ```
 
@@ -180,7 +180,7 @@ put `inline_pct_initiator.conf` and `inline_pct_shared.conf` after
 does.
 
 Confirm the posture in the generated configuration
-(`initiator/build_nrf54lm20dk_usb_cent_a1_1_debug/initiator/zephyr/.config`):
+(`initiator/build_nrf54lm20dk_usb_cent_a1_4_debug/initiator/zephyr/.config`):
 
 ```text
 CONFIG_MARS_CS_TRANSPORT_USB=y
@@ -331,13 +331,13 @@ builds into its own directory (`initiator/build_<preset>`), so point
 `west flash` at the build directory you want to flash:
 
 ```bash
-west flash -d initiator/build_nrf54lm20dk_cent_a1_1      # initiator, RAS
-west flash -d reflector/build_nrf54lm20dk_peri_a1_1      # reflector, RAS
+west flash -d initiator/build_nrf54lm20dk_cent_a1_4      # initiator, RAS
+west flash -d reflector/build_nrf54lm20dk_peri_a1_4      # reflector, RAS
 ```
 
 For an IPT pair, use the `_ipt` build directories:
-`initiator/build_nrf54lm20dk_cent_a1_1_ipt` and
-`reflector/build_nrf54lm20dk_peri_a1_1_ipt`.
+`initiator/build_nrf54lm20dk_cent_a1_4_ipt` and
+`reflector/build_nrf54lm20dk_peri_a1_4_ipt`.
 
 For flashing **prebuilt** firmware with no build step, see
 [docs/flash-quickstart.md](flash-quickstart.md).

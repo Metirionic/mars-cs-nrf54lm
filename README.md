@@ -63,21 +63,25 @@ Builds are driven by CMake presets in `initiator/CMakePresets.json` and
 
 | Preset | Role | Mode | Transport |
 |--------|------|------|-----------|
-| `nrf54lm20dk_cent_a1_1` | Initiator | RAS | J-Link VCOM |
-| `nrf54lm20dk_peri_a1_1` | Reflector | RAS | J-Link VCOM |
-| `nrf54lm20dk_cent_a1_1_ipt` | Initiator | IPT | J-Link VCOM |
-| `nrf54lm20dk_peri_a1_1_ipt` | Reflector | IPT | J-Link VCOM |
-| `nrf54lm20dk_usb_cent_a1_1` | Initiator | RAS | Native USB |
-| `nrf54lm20dk_usb_peri_a1_1` | Reflector | RAS | Native USB |
-| `nrf54lm20dk_usb_cent_a1_1_ipt` | Initiator | IPT | Native USB |
-| `nrf54lm20dk_usb_peri_a1_1_ipt` | Reflector | IPT | Native USB |
+| `nrf54lm20dk_cent_a1_4` | Initiator | RAS | J-Link VCOM |
+| `nrf54lm20dk_peri_a1_4` | Reflector | RAS | J-Link VCOM |
+| `nrf54lm20dk_cent_a1_4_ipt` | Initiator | IPT | J-Link VCOM |
+| `nrf54lm20dk_peri_a1_4_ipt` | Reflector | IPT | J-Link VCOM |
+| `nrf54lm20dk_usb_cent_a1_4` | Initiator | RAS | Native USB |
+| `nrf54lm20dk_usb_peri_a1_4` | Reflector | RAS | Native USB |
+| `nrf54lm20dk_usb_cent_a1_4_ipt` | Initiator | IPT | Native USB |
+| `nrf54lm20dk_usb_peri_a1_4_ipt` | Reflector | IPT | Native USB |
 
 All eight are built by CI and shipped in `cs-ranging-firmware.zip` — four
 VCOM and four native USB images. Preset names follow
 `<board>_<cent|peri>_a<antennas>_<paths>`, with an `_ipt` suffix for IPT and a
 `usb` transport token after the board name for native USB builds: `cent`/`peri`
 is the BLE role, `a<n>` is the antenna count, and the trailing number is the
-antenna-path count. See
+antenna-path capability. The DK has one antenna (`a1`); the `4` paths are the
+most it can support, not a claim of four physical antennas. The actual path
+count follows the peer's antenna count, negotiated per connection: from the
+initiator's side, `A1_B1` against a one-antenna peer up to `A1_B4` against a
+four-antenna peer (the reflector sees the same link as `An_B1`). See
 [docs/hardware.md](docs/hardware.md#presets) for the full preset table and
 [boards/README.md](boards/README.md) for the board-support contract.
 

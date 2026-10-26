@@ -6,49 +6,49 @@
     },
     "configurePresets": [
         {
-            "name": "nrf54lm20dk_peri_a1_1",
-            "displayName": "nRF54LM20-DK: peripheral A1 (1 path)",
+            "name": "nrf54lm20dk_peri_a1_4",
+            "displayName": "nRF54LM20-DK: peripheral A1 (4 paths)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_peri_a1_1",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_peri_a1_4",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_peri_a1_1_ipt",
-            "displayName": "nRF54LM20-DK: peripheral A1 (1 path, inline PCT)",
+            "name": "nrf54lm20dk_peri_a1_4_ipt",
+            "displayName": "nRF54LM20-DK: peripheral A1 (4 paths, inline PCT)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_peri_a1_1_ipt",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_peri_a1_4_ipt",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "../boards/inline_pct_reflector.conf;../boards/inline_pct_shared.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "../boards/inline_pct_reflector.conf;../boards/inline_pct_shared.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_usb_peri_a1_1",
-            "displayName": "nRF54LM20-DK: peripheral A1 (1 path, native USB)",
+            "name": "nrf54lm20dk_usb_peri_a1_4",
+            "displayName": "nRF54LM20-DK: peripheral A1 (4 paths, native USB)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_peri_a1_1",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_peri_a1_4",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "../boards/nrf54lm20dk_usb_reflector.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "../boards/nrf54lm20dk_usb_reflector.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_usb_peri_a1_1_ipt",
-            "displayName": "nRF54LM20-DK: peripheral A1 (1 path, inline PCT, native USB)",
+            "name": "nrf54lm20dk_usb_peri_a1_4_ipt",
+            "displayName": "nRF54LM20-DK: peripheral A1 (4 paths, inline PCT, native USB)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_peri_a1_1_ipt",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_peri_a1_4_ipt",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "../boards/inline_pct_reflector.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_reflector.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "../boards/inline_pct_reflector.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_reflector.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay"
             }
