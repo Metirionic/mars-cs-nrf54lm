@@ -171,6 +171,44 @@ python3 scripts/read-tag-rtt.py --serial 001057759725 --elf "$ELF" --output /tmp
 A ring that shows two boot banners is a stale first boot plus the newest one;
 the tail is the current session.
 
+## Clean-start sequence for a TAG interop run
+
+A TAG interop run needs both roles freshly booted and the TAG RTT ring scoped to
+the session only. The verified order (used for the #38 120 s smoke) is:
+
+1. **Halt the initiator** (`nrfutil device halt --serial-number <J-Link>`), then
+   drain its J-Link VCOM console (`timeout 3 cat <VCOM1> >/dev/null`) so no
+   pre-run lines enter the capture.
+2. **Invalidate the TAG RTT ring and hard-reset the TAG while the initiator is
+   halted**, using the invalidation from [RTT read-back](#rtt-read-back) followed
+   by `nrfutil device reset --serial-number <TAG probe> --reset-kind RESET_HARD`.
+   The TAG boots with a fresh ring and advertises.
+3. **Start the initiator console capture, then `west flash` the initiator.** The
+   flash reset is the initiator's fresh boot; the console reader must already be
+   open to catch the banner. The initiator's IPT advertise-name filter then
+   matches the TAG.
+4. **Open the initiator USB data port as soon as it re-enumerates** (a changed
+   USB device number proves the fresh enumeration) and capture for the full
+   window. The TAG's connection and config creation happen a few seconds in.
+5. **Read the TAG RTT after the window.** The 32 KiB overwrite ring holds the
+   whole 120 s smoke; an early read is optional (the #38 early and late windows
+   were identical), but read before it wraps on a longer soak.
+
+Resetting the TAG *after* the initiator has connected is the failure mode to
+avoid: the link drop makes the initiator reboot on disconnect, which closes its
+USB data port and can leave the COBS capture empty. Halt the initiator first.
+
+A pre-run TAG session left in the ring also makes a replay count aborts that
+are outside the window. The invalidate+reset in step 2 scopes the ring to the
+new session; #44 tracks a pre-run `NO_CS_SYNC_RECEIVED` burst observed before
+#38's clean run.
+
+If the console reader outlives the data capture, the first
+`Serialize backlog: dropped ...` and `COBS USB: dropped run ...` lines after the
+last serialized procedure are the reader-close artifact, not in-window drops.
+Cut the console log at that boundary before replay, or stop the console reader
+with the data timeout.
+
 ## Verification evidence (2026-10-26)
 
 - Target checks: L15-DK SoC `0xDC08B482EFBAC2E7` before seating; TAG
@@ -187,6 +225,50 @@ the tail is the current session.
 - Air: a scan discovers `E4:E4:BC:CF:6D:4C Nordic CS IPT Reflector` and no other
   `Nordic CS IPT Reflector`; the L15-DK SoC's former `Nordic CS Reflector`
   decoy is gone after its recovery.
+
+### A1_B2 smoke evidence (#38)
+
+The 120 s smoke of the debug-console initiator against the TAG negotiated A1_B2.
+Initiator console:
+
+```text
+[00:00:02.353,673] CS capability exchange completed. (peer antennas: 2)
+[00:00:02.593,763] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Initiator
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:02.913,662] Local antennas: 1, paths: 4, using config: 4, preferred peer ant.: 3
+[00:00:02.913,675] Dynamic timing: step 243 us, 2 paths, 75 steps, subevent 18225 us, interval 33725 us (27 units)
+[00:00:03.654,915] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+[00:00:03.881,929] Run serialization for procedure 0
+```
+
+Controller index 4 is `BT_LE_CS_TONE_ANTENNA_CONFIGURATION_A1_B2`
+(`zephyr/include/zephyr/bluetooth/conn.h:2078`); `common/antenna.c` maps one
+local and two peer antennas to that selector. The procedure-enable complete
+event reports the applied procedure interval 2 for the requested interval 1.
+
+TAG RTT console:
+
+```text
+[00:00:10.441,469] Connected to E9:90:A8:55:22:BE (random) (err 0x00)
+[00:00:12.523,533] CS capability exchange completed. (peer antennas: 1)
+[00:00:12.763,699] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Reflector
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:13.825,163] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+```
+
+The window-scoped replay found 3453 event frames among 5180 valid frames, 0
+invalid, 1729 serialized procedures, 0 aborts/watchdog/backlog/USB-drop reports
+in the window, and a captured COBS stream rate of 3.070 Mbit/s over 120 s.
+Captures, capture notes, and the scoped replay are recorded in the #38 evidence
+comment.
 
 ## References
 
