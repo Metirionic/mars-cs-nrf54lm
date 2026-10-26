@@ -607,9 +607,9 @@ entirely board-owned — no model-specific assignment lives in shared code.
 **Presets → `west build`.** `CMakePresets.json` (per app) is the source of truth
 for the preset → (board, overlay, conf-fragment) mapping.
 `initiator/CMakePresets.json` defines the four initiator presets
-(`nrf54lm20dk_cent_a1_1`, `nrf54lm20dk_cent_a1_1_ipt`, and their
+(`nrf54lm20dk_cent_a1_4`, `nrf54lm20dk_cent_a1_4_ipt`, and their
 `nrf54lm20dk_usb_*` counterparts) and `reflector/CMakePresets.json` the four
-reflector presets (`nrf54lm20dk_peri_a1_1`, `nrf54lm20dk_peri_a1_1_ipt`, and
+reflector presets (`nrf54lm20dk_peri_a1_4`, `nrf54lm20dk_peri_a1_4_ipt`, and
 their `nrf54lm20dk_usb_*` counterparts).
 `ci/common.sh` (`parse_preset`) reads the file with a small Python snippet and
 extracts `BOARD`, `CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` from
@@ -689,7 +689,13 @@ IPT table above). The antenna/path counts themselves come from the
   DK's data function has a 32 KiB TX FIFO, which exceeds the default
   32,767-byte ring-buffer limit, so the initiator USB fragment sets
   `CONFIG_RING_BUFFER_LARGE`. Either way the serializer and wire format are
-  unchanged.
+  unchanged. The run size does not depend on
+  `CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS`: the wire format's `Mode2` tone
+  arrays are fixed at `MAX_ANTENNA_PATH_COUNT + 1` (four paths plus the
+  extension slot) in `mars-bluetooth-hci`, so the four-path product policy
+  leaves the 29,000-byte run buffer, the 32 KiB USB data FIFO, and the
+  reassembly buffer unchanged (see
+  [docs/hardware.md](hardware.md#antenna-path-policy)).
   One event is ~26.6 KB ≈ 289 ms at 921600 baud
   (≈3.5 events/s wire limit); the figures are baud-dependent — at the
   nRF54LM20-DK's 1,000,000 baud the same event drains proportionally faster.

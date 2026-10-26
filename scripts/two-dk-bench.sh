@@ -185,10 +185,10 @@ drop and every 128th), so a stale counter can hide up to 127 new drops and
 let a dirty run pass.
 
 The harness does not flash the DKs. Flash a matched mode pair first:
-  VCOM RAS: nrf54lm20dk_cent_a1_1 + nrf54lm20dk_peri_a1_1
-  VCOM IPT: nrf54lm20dk_cent_a1_1_ipt + nrf54lm20dk_peri_a1_1_ipt
-  USB RAS:  nrf54lm20dk_usb_cent_a1_1 + nrf54lm20dk_usb_peri_a1_1
-  USB IPT:  nrf54lm20dk_usb_cent_a1_1_ipt + nrf54lm20dk_usb_peri_a1_1_ipt
+  VCOM RAS: nrf54lm20dk_cent_a1_4 + nrf54lm20dk_peri_a1_4
+  VCOM IPT: nrf54lm20dk_cent_a1_4_ipt + nrf54lm20dk_peri_a1_4_ipt
+  USB RAS:  nrf54lm20dk_usb_cent_a1_4 + nrf54lm20dk_usb_peri_a1_4
+  USB IPT:  nrf54lm20dk_usb_cent_a1_4_ipt + nrf54lm20dk_usb_peri_a1_4_ipt
 EOF
 }
 

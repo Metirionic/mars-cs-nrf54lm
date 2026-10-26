@@ -6,49 +6,49 @@
     },
     "configurePresets": [
         {
-            "name": "nrf54lm20dk_cent_a1_1",
-            "displayName": "nRF54LM20-DK: central A1 (1 path)",
+            "name": "nrf54lm20dk_cent_a1_4",
+            "displayName": "nRF54LM20-DK: central A1 (4 paths)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_cent_a1_1",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_cent_a1_4",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "central.overlay;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "central.overlay;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_cent_a1_1_ipt",
-            "displayName": "nRF54LM20-DK: central A1 (1 path, inline PCT)",
+            "name": "nrf54lm20dk_cent_a1_4_ipt",
+            "displayName": "nRF54LM20-DK: central A1 (4 paths, inline PCT)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_cent_a1_1_ipt",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_cent_a1_4_ipt",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_usb_cent_a1_1",
-            "displayName": "nRF54LM20-DK: central A1 (1 path, native USB)",
+            "name": "nrf54lm20dk_usb_cent_a1_4",
+            "displayName": "nRF54LM20-DK: central A1 (4 paths, native USB)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_cent_a1_1",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_cent_a1_4",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay"
             }
         },
         {
-            "name": "nrf54lm20dk_usb_cent_a1_1_ipt",
-            "displayName": "nRF54LM20-DK: central A1 (1 path, inline PCT, native USB)",
+            "name": "nrf54lm20dk_usb_cent_a1_4_ipt",
+            "displayName": "nRF54LM20-DK: central A1 (4 paths, inline PCT, native USB)",
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_cent_a1_1_ipt",
+            "binaryDir": "${sourceDir}/build_nrf54lm20dk_usb_cent_a1_4_ipt",
             "cacheVariables": {
                 "BOARD": "nrf54lm20dk/nrf54lm20a/cpuapp",
-                "EXTRA_CONF_FILE": "central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_initiator.conf;../boards/1_path_1_local.conf",
+                "EXTRA_CONF_FILE": "central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_initiator.conf;../boards/4_path_1_local.conf",
                 "CONF_FILE": "prj.conf",
                 "DTC_OVERLAY_FILE": "../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay"
             }

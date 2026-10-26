@@ -231,6 +231,36 @@ firmware sources stay board-agnostic; a board support change consists of:
 `CONFIG_BT_RAS_MAX_ANTENNA_PATHS`). So "A1 2-path" means 1 antenna, 2 paths;
 "A2 4-path" means 2 antennas, 4 paths.
 
+### Antenna-path policy
+
+Every shipped nRF54LM20-DK image is built for **one antenna and four antenna
+paths** (`boards/4_path_1_local.conf`): `CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS=1`
+and `CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS=4`. The DK has one antenna, so
+the `a1` in every preset name is the physical count. The `4` is the
+compile-time capability, not a claim of four antennas: it lets the controller
+negotiate a tone configuration that follows the **peer's** antenna count. From
+the initiator's side that is `A1_B1` against a one-antenna peer, up to `A1_B4`
+against a four-antenna peer; the reflector's view of the same link is `An_B1`
+(see [Tone-antenna configuration](#tone-antenna-configuration-supplementary)).
+`common/antenna.c` derives the negotiated `An_Bm` configuration from the local
+`NUM_ANTENNAS` and the peer count from the CS capabilities exchange, so the
+actual path count in a procedure follows the peer, not the preset.
+
+The policy deliberately leaves the three transport-related sizes unchanged.
+None of them scales with the configured maximum path count:
+
+| Size | Value | Why it does not change |
+|------|-------|------------------------|
+| COBS run buffer (`COBS_TX_RUN_MAX_SIZE`) | 29,000 B | The serialized `Mode2` tone arrays are fixed at five entries — four antenna paths plus the extension slot — in the `mars-bluetooth-hci` wire format (`MAX_ANTENNA_PATH_COUNT = 4`), independent of the firmware's `CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS`. The run carries two events plus a log message; the measured run is the same size for the one-path pair and the mixed two-path run. |
+| USB data FIFO (`tx-fifo-size`) | 32,768 B | Holds one whole 29,000-byte run; the run does not grow. |
+| CS reassembly buffer (`CONFIG_BT_CHANNEL_SOUNDING_REASSEMBLY_BUFFER_SIZE`) | 4,800 B | The maximum under the NCS RAS Kconfig override (which caps the range at 4,800 B for RAS builds) and above the NCS default for four paths without Mode 3 (3,840 B). Mode 3 stays disabled and the local subevent still carries one local antenna path, so the four-path capability does not need a larger reassembly buffer. |
+
+The four-path capability was exercised on the bench before it became the
+shipped policy: the mixed LM20↔nRF54L15 TAG run negotiated `A1_B2` and measured
+26,666 bytes per procedure against 26,669 in the `A1_B1` re-baseline — a
+value-variance difference, not a payload growth. See
+[docs/bench-tag-interop.md](bench-tag-interop.md#a1_b2-600-s-gate-evidence-39).
+
 ### Kconfig fragments
 
 Every preset pulls a `boards/*_local.conf` path-local fragment. RAS presets
@@ -249,7 +279,9 @@ needed). Each local fragment is three lines setting the same three symbols:
 | `4_path_4_local.conf` | 4 | 4 | 4 | A4 / 4-path |
 
 Fragment filenames follow `<paths>_path_<antennas>_local.conf` — paths first,
-antennas second.
+antennas second. Every nRF54LM20-DK preset uses `4_path_1_local.conf` under the
+[antenna-path policy](#antenna-path-policy); the other fragments stay available
+for boards with a different antenna count or policy.
 
 IPT presets pull the same path-local fragment **plus** two Inline PCT fragments
 that switch the firmware from RAS to IPT mode (see
@@ -269,18 +301,18 @@ The nRF54LM20-DK presets live in `initiator/CMakePresets.json` and
 
 | Preset | Mode | Role | Board | Overlay | `EXTRA_CONF_FILE` | Antennas / Paths |
 |--------|------|------|-------|---------|-------------------|------------------|
-| `nrf54lm20dk_cent_a1_1` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_cent_a1_1_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_peri_a1_1` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_peri_a1_1_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_usb_cent_a1_1` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_usb_cent_a1_1_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_usb_peri_a1_1` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay` | `boards/nrf54lm20dk_usb_reflector.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
-| `nrf54lm20dk_usb_peri_a1_1_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/nrf54lm20dk_usb_reflector.conf`; `boards/1_path_1_local.conf` | A1 / 1-path |
+| `nrf54lm20dk_cent_a1_4` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_cent_a1_4_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_peri_a1_4` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_peri_a1_4_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_usb_cent_a1_4` | RAS | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_usb_cent_a1_4_ipt` | IPT | Initiator | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay` | `initiator/central.overlay`; `boards/inline_pct_initiator.conf`; `boards/inline_pct_shared.conf`; `boards/nrf54lm20dk_usb_initiator.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_usb_peri_a1_4` | RAS | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay` | `boards/nrf54lm20dk_usb_reflector.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
+| `nrf54lm20dk_usb_peri_a1_4_ipt` | IPT | Reflector | `nrf54lm20dk/nrf54lm20a/cpuapp` | `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_reflector.overlay` | `boards/inline_pct_reflector.conf`; `boards/inline_pct_shared.conf`; `boards/nrf54lm20dk_usb_reflector.conf`; `boards/4_path_1_local.conf` | A1 / 4-path |
 
 Preset names follow `<board>[_usb]_<cent|peri>_a<antennas>_<paths>`, with an
 `_ipt` suffix for IPT. Native USB presets insert a `usb` transport token after
-the board name (`nrf54lm20dk_usb_cent_a1_1`): the initiator's overlay declares
+the board name (`nrf54lm20dk_usb_cent_a1_4`): the initiator's overlay declares
 two CDC ACM functions in interface order — data first (chosen `cobs-uart`),
 console second (chosen `zephyr,console`) — while the reflector's overlay
 declares a single console function. Both disable the VCOM UARTs. They use the
@@ -330,13 +362,17 @@ by role:
 
 Before the capabilities exchange completes (or if it fails), the peer count
 falls back to the heuristic `peer = CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS /
-CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS` (integer division). For a **matched** pair
-the negotiated count equals the heuristic, so the table below still holds; for
-a **mismatched** pair the negotiated count wins.
+CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS` (integer division) — 4 for every current DK
+preset (4 paths / 1 antenna). The table below is that fallback mapping; once
+the exchange completes, the peer's advertised count wins. A matched LM20 pair
+(both A1/4) therefore negotiates `A1_B1` on both sides, not the fallback
+`A1_B4`/`A4_B1`; a mixed pair negotiates whatever the peer advertises (for
+example `A1_B2` against a two-antenna reflector).
 
 The same `(antennas, paths)` config can therefore resolve to a different
 `An_Bm` depending on which role runs it — the local and peer counts land in
-opposite index slots. For the fragment combinations this repo expresses:
+opposite index slots. For the fragment combinations this repo expresses, the
+fallback mapping is:
 
 | Antennas / Paths | Initiator `An_Bm` | Reflector `An_Bm` |
 |------------------|-------------------|--------------------|
