@@ -171,6 +171,57 @@ python3 scripts/read-tag-rtt.py --serial 001057759725 --elf "$ELF" --output /tmp
 A ring that shows two boot banners is a stale first boot plus the newest one;
 the tail is the current session.
 
+## Clean-start sequence for a TAG interop run
+
+A TAG interop run needs both roles freshly booted and the TAG RTT ring scoped to
+the session only. The verified order (used for the #38 120 s smoke) is:
+
+1. **Halt the initiator** (`nrfutil device halt --serial-number <J-Link>`), then
+   drain its J-Link VCOM console (`timeout 3 cat <VCOM1> >/dev/null`) if the
+   debug image is in use, so no pre-run lines enter the capture.
+2. **Invalidate the TAG RTT ring and hard-reset the TAG while the initiator is
+   halted**, using the invalidation from [RTT read-back](#rtt-read-back) followed
+   by `nrfutil device reset --serial-number <TAG probe> --reset-kind RESET_HARD`.
+   The TAG boots with a fresh ring and advertises.
+3. **Flash the initiator and attach its console for the image in use.** The
+   flash reset is the initiator's fresh boot; the initiator's IPT
+   advertise-name filter then matches the TAG.
+   - *Debug-console image:* start the J-Link VCOM1 console capture before
+     `west flash`, so the reader is open to catch the banner. The VCOM survives
+     the reset.
+   - *Standard image:* `west flash` first, wait for the USB device to
+     re-enumerate (a changed `devnum`), then attach the console (`-if02`) and
+     data (`-if00`) readers immediately, console first and both for the same
+     window. The USB console is best-effort (see
+     [ADR 0001](adr/0001-native-usb-transport.md)): the #39 gate still captured
+     the banner, negotiation, and procedures after the re-attach, but a larger
+     pre-enumeration burst can drop early lines.
+4. **Capture the data stream for the full window.** With the standard image this
+   is the data half of step 3; with the debug image, open the USB data port as
+   soon as it re-enumerates (a changed USB device number proves the fresh
+   enumeration). The TAG's connection and config creation happen a few seconds
+   in.
+5. **Read the TAG RTT after the window.** The 32 KiB overwrite ring holds the
+   whole session at the reflector's boot/connection-only log rate (the 600 s
+   gate used `WrOff=2207` bytes, so it would wrap after roughly 2.5 h); read
+   before a longer soak wraps it. An early read is optional (the #38 early and
+   late windows were identical).
+
+Resetting the TAG *after* the initiator has connected is the failure mode to
+avoid: the link drop makes the initiator reboot on disconnect, which closes its
+USB data port and can leave the COBS capture empty. Halt the initiator first.
+
+A pre-run TAG session left in the ring also makes a replay count aborts that
+are outside the window. The invalidate+reset in step 2 scopes the ring to the
+new session; #44 tracks a pre-run `NO_CS_SYNC_RECEIVED` burst observed before
+#38's clean run.
+
+If the console reader outlives the data capture, the first
+`Serialize backlog: dropped ...` and `COBS USB: dropped run ...` lines after the
+last serialized procedure are the reader-close artifact, not in-window drops.
+Cut the console log at that boundary before replay, or stop the console reader
+with the data timeout.
+
 ## Verification evidence (2026-10-26)
 
 - Target checks: L15-DK SoC `0xDC08B482EFBAC2E7` before seating; TAG
@@ -187,6 +238,145 @@ the tail is the current session.
 - Air: a scan discovers `E4:E4:BC:CF:6D:4C Nordic CS IPT Reflector` and no other
   `Nordic CS IPT Reflector`; the L15-DK SoC's former `Nordic CS Reflector`
   decoy is gone after its recovery.
+
+### A1_B2 smoke evidence (#38)
+
+The 120 s smoke of the debug-console initiator against the TAG negotiated A1_B2.
+Initiator console:
+
+```text
+[00:00:02.353,673] CS capability exchange completed. (peer antennas: 2)
+[00:00:02.593,763] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Initiator
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:02.913,662] Local antennas: 1, paths: 4, using config: 4, preferred peer ant.: 3
+[00:00:02.913,675] Dynamic timing: step 243 us, 2 paths, 75 steps, subevent 18225 us, interval 33725 us (27 units)
+[00:00:03.654,915] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+[00:00:03.881,929] Run serialization for procedure 0
+```
+
+Controller index 4 is `BT_LE_CS_TONE_ANTENNA_CONFIGURATION_A1_B2`
+(`zephyr/include/zephyr/bluetooth/conn.h:2078`); `common/antenna.c` maps one
+local and two peer antennas to that selector. The procedure-enable complete
+event reports the applied procedure interval 2 for the requested interval 1.
+
+TAG RTT console:
+
+```text
+[00:00:10.441,469] Connected to E9:90:A8:55:22:BE (random) (err 0x00)
+[00:00:12.523,533] CS capability exchange completed. (peer antennas: 1)
+[00:00:12.763,699] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Reflector
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:13.825,163] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+```
+
+The window-scoped replay found 3453 event frames among 5180 valid frames, 0
+invalid, 1729 serialized procedures, 0 aborts/watchdog/backlog/USB-drop reports
+in the window, and a captured COBS stream rate of 3.070 Mbit/s over 120 s.
+Captures, capture notes, and the scoped replay are recorded in the #38 evidence
+comment.
+
+### A1_B2 600 s gate evidence (#39)
+
+The measured gate used the standard A1/4 interval-1 USB image
+(`initiator/build_nrf54lm20dk_usb_cent_a1_4_ipt_interval1`, hex
+`f1a7b91d…`, bin `57d6e65f…`) against the TAG at sibling `c2253fe` (FICR
+`0xFFC34F211C2820B8` on probe `001057759725`, bin `a4fce037…`, the image
+verified over the probe in #36). The initiator was flashed fresh (`west flash`
+exit 0; USB `devnum` 45 → 46), and the TAG RTT ring was invalidated and
+hard-reset while the initiator was halted. A 12 s scan then found exactly one
+`Nordic CS IPT Reflector` advertiser (`E4:E4:BC:CF:6D:4C`) before the
+initiator was flashed. The TAG build configuration is in
+[Firmware provenance](#firmware-provenance); the initiator's composition and
+Kconfig are in [docs/build-from-source.md](build-from-source.md).
+
+The standard image has its console on the native-USB CDC ACM `-if02` function
+(see clean-start step 3), so the console and data readers were attached
+immediately after re-enumeration with the same 600 s window, console first. The
+console therefore ends just before the data reader, and no reader-close
+artifact enters the capture. The re-attach still captured the boot banner, the
+negotiation, and the procedures; the console remains best-effort
+([ADR 0001](adr/0001-native-usb-transport.md)).
+
+Initiator console:
+
+```text
+*** Booting nRF Connect SDK v3.4.0-99553055607b ***
+*** Using Zephyr OS v4.4.0-b78f455b4053 ***
+[00:00:00.012,973] Starting Mars Channel Sounding Initiator
+[00:00:00.158,629] Filters matched. Address: E4:E4:BC:CF:6D:4C (random) connectable: 1
+[00:00:00.264,010] Connected to E4:E4:BC:CF:6D:4C (random) (err 0x00)
+[00:00:02.345,535] CS capability exchange completed. (peer antennas: 2)
+[00:00:02.585,625] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Initiator
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:02.905,526] Local antennas: 1, paths: 4, using config: 4, preferred peer ant.: 3
+[00:00:02.905,539] Dynamic timing: step 243 us, 2 paths, 75 steps, subevent 18225 us, interval 33725 us (27 units)
+[00:00:03.646,778] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+[00:00:03.873,794] Run serialization for procedure 0
+```
+
+TAG RTT console:
+
+```text
+[00:00:23.432,012] Connected to E9:90:A8:55:22:BE (random) (err 0x00)
+[00:00:25.514,075] CS capability exchange completed. (peer antennas: 1)
+[00:00:25.754,241] CS config creation complete.
+ - mode: 2 (PBR)
+ - role: Reflector
+ - channel_map: 0x1FFFFFFFFFFFFC7FFFFC
+[00:00:26.815,706] CS procedures enabled:
+ - antenna configuration index: 4
+ - procedure interval: 2
+```
+
+The replay (`scripts/two-dk-bench.sh --mode ipt --analyze-dir <capture>`)
+returned `RESULT: PASS (replay; not live evidence)` and passed all eight replay
+assertions: 8,839 serialized procedures, 26,519 valid COBS frames (17,679 event
++ 8,840 log, 0 invalid), 0 empty-procedure signatures, 0 reflector aborts, 0
+watchdog recoveries on either side, 0 serialize/diagnostic backlog reports, and
+0 USB transport drops. The 13,320-byte leading segment decodes as a canonical
+tag-0 event frame but is counted as a leading partial, so the true event count
+is 17,680. The TAG RTT ring was linear, `WrOff=2207` of 32,768 bytes, so the
+32 KiB overwrite buffer held the whole session. The initiator's native-USB link
+was 480 Mbit/s at the end of the run (sysfs); the live link-speed/identity
+assertions do not run under `--analyze-dir`, so that check is recorded here
+separately from the replay.
+
+The captured COBS stream rate was **392,836.6 B/s = 3.143 Mbit/s** over 600 s,
+3.30 % below the 3.250 Mbit/s A1_B1 interval-1 reference and 3.76 % below the
+#37 A1_B1 re-baseline (3.265 Mbit/s). The difference is cadence, not payload
+size: 8,839 procedures in 600 s (14.73/s) versus 9,183 (15.31/s) in #37, at
+26,666 bytes/procedure versus 26,669. A1_B2 negotiates two tone paths against
+the TAG's two antennas (`subevent 18225 us`) where A1_B1 uses one. The rate is
+reported, not hard-gated, because the TAG run is not config-matched to the
+A1_B1 reference.
+
+Capture: `/tmp/cs39-tag-gate-20261026-205400`
+(`initiator-console.log`, `initiator-cobs.bin`, `reflector-console.log` from
+the TAG RTT read, `capture-info.txt`, `capture-notes.txt`,
+`harness-replay-summary.txt`; `initiator-cobs.bin` sha256 `04f0d20d…`). The
+full evidence write-up is in the #39 issue.
+
+Residual risks: the interop claim is link, procedure, and framing only — the
+COBS check is framing/length based, not a postcard payload decode, and no
+PCT/range semantics were validated; the TAG firmware is the bench-only sibling
+build (`c2253fe` plus `bench/nrf54l15tag_rtt_bench.conf`), not a release image;
+the standard initiator image is a manual build, not a CI preset; the initiator
+USB console is best-effort ([ADR 0001](adr/0001-native-usb-transport.md)), so a
+later attach can lose the pre-enumeration lines (this run captured them); the
+TAG console is a post-run RTT read, so a ring wrap would lose the earliest
+lines (not observed in this run); and one host/OS configuration was measured.
 
 ## References
 
