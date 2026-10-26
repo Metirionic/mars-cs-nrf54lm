@@ -89,7 +89,9 @@ It is not a preset and is never shipped; see
 ## Hardware reference
 
 For the board-support contract, DK wiring notes, antenna/path fragment
-mapping, and the preset table, see [docs/hardware.md](docs/hardware.md).
+mapping, and the preset table, see [docs/hardware.md](docs/hardware.md). For the
+nRF54L15 TAG reflector bench used in the mixed LM20/TAG campaign, see
+[docs/bench-tag-interop.md](docs/bench-tag-interop.md).
 
 ## Architecture
 
