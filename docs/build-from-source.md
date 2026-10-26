@@ -108,11 +108,10 @@ parent's `.west/`). An explicit `NCS_DIR` still overrides both fallbacks.
 
 If you drive `west build` by hand for a preset build instead, pass the same
 `CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` values the preset
-carries, and use a preset-specific `-d` build directory. The non-release debug
-variant in
-[Non-release USB debug console (J-Link VCOM)](#non-release-usb-debug-console-j-link-vcom)
-is the one deliberate exception — it has no preset. A bare `west build` (no `-d`) uses a
-single `./build/` and the two apps collide:
+carries, and use a preset-specific `-d` build directory. The preset-less bench
+builds below — the interval-1 cadence override, the non-release debug variant,
+and the A1 4-path interop images — are deliberate exceptions. A bare
+`west build` (no `-d`) uses a single `./build/` and the two apps collide:
 
 ```
 Build directory "<build_dir>" is for application "<cached_app_dir>", but source
@@ -191,6 +190,75 @@ CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM=y
 
 This image is not built by CI and is never part of
 `cs-ranging-firmware.zip`. Do not add it to `CMakePresets.json`.
+
+### Bench images for the A1 4-path IPT interop run (interval 1)
+
+The interop run uses two non-release initiator images: a standard native-USB
+image for the measured run and a debug-console image for bring-up. Both are IPT
+builds on the native USB transport with the one-antenna/four-path fragment
+(`boards/4_path_1_local.conf`), and both request procedure interval 1. Neither
+is a preset: CI and the release workflow build every preset via
+`ci/list-presets.sh`, so these postures stay manual.
+
+Standard image:
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_4_ipt_interval1 \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_initiator.conf;../boards/4_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE=../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay \
+  -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+```
+
+Debug-console image — the debug overlay goes after the USB overlay and the
+debug fragment after the USB fragment, as in
+[Non-release USB debug console (J-Link VCOM)](#non-release-usb-debug-console-j-link-vcom):
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_4_ipt_interval1_debug \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/inline_pct_initiator.conf;../boards/inline_pct_shared.conf;../boards/nrf54lm20dk_usb_initiator.conf;../boards/nrf54lm20dk_usb_initiator_debug.conf;../boards/4_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE="../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay;../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay" \
+  -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+```
+
+Both generated configurations
+(`initiator/build_<name>/initiator/zephyr/.config`, where `<name>` is one of the
+two build directories above) show:
+
+```text
+CONFIG_MARS_CS_TRANSPORT_USB=y
+CONFIG_MARS_CS_ROLE_INITIATOR=y
+CONFIG_MARS_CS_INLINE_PCT=y
+CONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS=4
+CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS=1
+```
+
+The debug image additionally shows `CONFIG_MARS_CS_USB_DEBUG_CONSOLE_VCOM=y`
+and routes every console chosen node to `&uart20` (J-Link VCOM1, 115200 baud)
+while `cobs-uart` stays on `&cdc_data`; the standard image keeps
+`zephyr,console` on `&cdc_console` and disables both UARTs. See
+[Device and host interface](hardware.md#device-and-host-interface) for the
+function mapping.
+
+The four-path maximum is a controller capability, not a claim of four physical
+antennas: the DK has one antenna (`CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS=1`), and
+the capability is what lets it accept a two-antenna peer's `A1_B2` tone
+configuration. The
+fragment's `CONFIG_BT_RAS_MAX_ANTENNA_PATHS=4` is dropped with a Kconfig warning
+because IPT mode sets `CONFIG_BT_RAS=n`, and
+`CONFIG_BT_CS_DE_MAX_NUM_ANTENNA_PATHS` is not set by the fragment and stays at
+its default of 1; the controller symbol governs the CS capability exchange.
+See [Antenna and path presets](hardware.md#antenna-and-path-presets).
+
+The two builds linked with about 272 KiB of SRAM headroom: the standard image
+used 244,332 B of the 511 KiB RAM region (46.69 %) and the debug image
+244,396 B (46.71 %). The images are
+`initiator/build_<name>/initiator/zephyr/zephyr.hex`; neither is built by CI or
+included in `cs-ranging-firmware.zip`.
 
 ### Multiple presets (driven like CI)
 
