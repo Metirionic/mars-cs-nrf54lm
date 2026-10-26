@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.0) - 2026-10-26
+#### Features
+- make all LM20 presets four-path-capable and rename to a1_4 - ([182a594](https://github.com/Metirionic/mars-cs-nrf54lm/commit/182a594b8e5346935cc3291643bbbbf0da4d9319)) - AttilaRoemer, Claude Code
+#### Documentation
+- record the A1_B2 TAG interop 600 s gate - ([b8ec7e7](https://github.com/Metirionic/mars-cs-nrf54lm/commit/b8ec7e7b304fabb68933692d7fb624d2309ea555)) - AttilaRoemer, Claude Code
+- record the A1_B2 TAG interop smoke and clean-start order - ([b4e8e6c](https://github.com/Metirionic/mars-cs-nrf54lm/commit/b4e8e6cf49d4e05b391874169fbceeaf4da6757a)) - AttilaRoemer, Claude Code
+- add the nRF54L15 TAG interop bench runbook - ([22a0dda](https://github.com/Metirionic/mars-cs-nrf54lm/commit/22a0ddadb1307543a09729884f72c4536e596680)) - AttilaRoemer, Claude Code
+- document the A1 4-path IPT interval-1 USB bench images - ([2f2693a](https://github.com/Metirionic/mars-cs-nrf54lm/commit/2f2693a90977c3d6e1a14f9002a2ad08aaaac222)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.7.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.7.0) - 2026-10-22
 #### Features
 - add non-release USB debug console variant - ([4428a11](https://github.com/Metirionic/mars-cs-nrf54lm/commit/4428a11ef45555678f10777cf4e49e3c1af53da7)) - AttilaRoemer, Claude Code
