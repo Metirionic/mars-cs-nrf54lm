@@ -103,10 +103,14 @@ config MARS_CS_LIVENESS_WATCHDOG
 	  Data frames keep flowing, so frame flow is not a liveness signal).
 	  The watchdog is petted once per completed procedure WITH step data
 	  (RAS: ranging_data_cb healthy path; IPT: process_subevent_cb;
-	  reflector: COMPLETE subevents with steps). On timeout it logs a
-	  banner and forces a disconnect via the registered recovery callback,
-	  which reboots both boards through the existing reboot-on-disconnect
-	  path and re-runs the full handshake.
+	  reflector: COMPLETE subevents with steps). The timer expiry runs in
+	  the system clock interrupt and does no blocking work: it arms a hard
+	  ~3 s backstop reboot and dispatches the registered recovery callback
+	  to the system workqueue. The callback (thread context, so it may
+	  block) forces a disconnect, which reboots both boards through the
+	  existing reboot-on-disconnect path and re-runs the full handshake;
+	  the initiator's callback also emits a COBS banner first. The
+	  backstop reboots the board if the workqueue never runs the callback.
 
 config MARS_CS_LIVENESS_WATCHDOG_TIMEOUT_MS
 	int "CS liveness watchdog timeout in ms"
@@ -119,12 +123,13 @@ config MARS_CS_LIVENESS_WATCHDOG_TIMEOUT_MS
 	  pet, so handshake gaps never false-trigger it.
 
 config MARS_CS_LIVENESS_WATCHDOG_TEST_NO_PET
-	bool "Never pet the CS liveness watchdog (test hook)"
+	bool "Arm the CS liveness watchdog only once (test hook)"
 	default n
 	depends on MARS_CS_LIVENESS_WATCHDOG
 	help
-	  Deterministic recovery-loop test for desk bring-up: the watchdog
-	  never pets and fires ~timeout after the first healthy procedure.
-	  Do not enable in production builds.
+	  Deterministic recovery-loop test for desk bring-up: the timer is
+	  armed once on the first pet and never re-armed, so the watchdog
+	  fires ~timeout after the first healthy procedure. Do not enable in
+	  production builds.
 
 endmenu

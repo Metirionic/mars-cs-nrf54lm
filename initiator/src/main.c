@@ -234,13 +234,26 @@ static void reboot_fallback_handler(struct k_timer * timer)
 static K_TIMER_DEFINE(reboot_fallback, reboot_fallback_handler, NULL);
 
 /**
- * @brief CS liveness watchdog recovery (#116) — runs on the system workqueue.
+ * @brief CS liveness watchdog recovery (#116).
  *
- * Emits a COBS banner (the host's only window into the initiator), then
- * forces a disconnect so the existing disconnected_cb -> sys_reboot path
- * recovers both boards. The 2 s fallback timer covers a wedged controller
- * that never completes the HCI disconnect command (bt_hci_disconnect has no
- * timeout); a failed disconnect means the link is already gone, so reboot.
+ * Invoked by the watchdog's system-workqueue work item, never from the timer
+ * expiry ISR, so the COBS acquire below may block. Emits a COBS banner (the
+ * host's only window into the initiator), then forces a disconnect so the
+ * existing disconnected_cb -> sys_reboot path recovers both boards. The 2 s
+ * fallback timer covers a disconnect that the controller accepts but never
+ * completes; if the HCI command itself never completes, the sync wait's
+ * timeout assertion resets the board. A refused command is not a graceful
+ * path either, so reboot.
+ *
+ * The banner acquire is bounded by CONFIG_MARS_CS_USB_TX_TIMEOUT_MS on USB
+ * builds; its give comes from the CDC ACM workqueue, which the initiator USB
+ * fragment moves to a dedicated thread (CONFIG_USBD_CDC_ACM_WORKQUEUE) so it
+ * can run while this work blocks on the gate. VCOM builds give the gate from
+ * the UART async callback in the UARTE ISR, which needs no separate thread.
+ *
+ * The disconnect reason is CS_WATCHDOG_DISCONNECT_REASON, not the
+ * semantically correct 0x16: the controller rejects 0x16 with HCI status 0x12
+ * (see common/cs_watchdog.h).
  */
 static void cs_watchdog_recovery_cb(void)
 {
@@ -248,7 +261,7 @@ static void cs_watchdog_recovery_cb(void)
 
     struct bt_conn * conn = ble_callbacks_get_connection();
 
-    if (conn != NULL && bt_conn_disconnect(conn, BT_HCI_ERR_LOCALHOST_TERM_CONN) == 0)
+    if (conn != NULL && bt_conn_disconnect(conn, CS_WATCHDOG_DISCONNECT_REASON) == 0)
     {
         k_timer_start(&reboot_fallback, K_MSEC(2000), K_NO_WAIT);
         return;

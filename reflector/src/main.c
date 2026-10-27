@@ -18,6 +18,7 @@
 #include <zephyr/bluetooth/uuid.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/logging/log_ctrl.h>
 #include <zephyr/settings/settings.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/reboot.h>
@@ -86,6 +87,11 @@ static void disconnected_cb(struct bt_conn * conn, uint8_t reason)
 
     dk_set_led_off(CON_STATUS_LED);
 
+    /* Deferred logging: sys_reboot resets the SoC without draining the log
+     * queue, so flush it explicitly. On a VCOM console this is the only trace
+     * of the disconnect (and of any pending watchdog recovery) before the
+     * board reboots; on the USB console it is best-effort. */
+    LOG_PANIC();
     sys_reboot(SYS_REBOOT_COLD);
 }
 
@@ -301,14 +307,24 @@ BT_CONN_CB_DEFINE(cs_watchdog_conn_cb) = {
 /**
  * @brief Watchdog recovery: force disconnect (reboots both boards) or reboot.
  *
- * Runs on the system workqueue. A successful disconnect lets the existing
- * disconnected_cb -> sys_reboot path recover the pair; the 2 s fallback timer
- * covers a wedged controller that never completes the HCI disconnect command
- * (bt_hci_disconnect has no timeout).
+ * Invoked by the watchdog's system-workqueue work item, never from the timer
+ * expiry ISR, so the HCI sync-command wait inside bt_conn_disconnect is legal.
+ * A successful disconnect lets the existing disconnected_cb -> sys_reboot
+ * path recover the pair; the 2 s fallback timer covers a disconnect that the
+ * controller accepts but never completes.
+ *
+ * CONFIG_BT_TX_PROCESSOR_THREAD=y keeps the HCI TX path off this workqueue, so
+ * the wait cannot deadlock it; a refused command returns and takes the reboot
+ * branch, and a command that never completes ends in the sync wait's timeout
+ * assertion.
+ *
+ * The disconnect reason is CS_WATCHDOG_DISCONNECT_REASON, not the
+ * semantically correct 0x16: the controller rejects 0x16 with HCI status 0x12
+ * (see common/cs_watchdog.h).
  */
 static void cs_watchdog_recovery_cb(void)
 {
-    if (gp_connection != NULL && bt_conn_disconnect(gp_connection, BT_HCI_ERR_LOCALHOST_TERM_CONN) == 0)
+    if (gp_connection != NULL && bt_conn_disconnect(gp_connection, CS_WATCHDOG_DISCONNECT_REASON) == 0)
     {
         k_timer_start(&reboot_fallback, K_MSEC(2000), K_NO_WAIT);
         return;

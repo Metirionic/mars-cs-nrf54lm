@@ -13,6 +13,7 @@
 #include <dk_buttons_and_leds.h>
 #include <zephyr/bluetooth/cs.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/logging/log_ctrl.h>
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/sys/reboot.h>
 
@@ -127,6 +128,11 @@ static void disconnected_cb(struct bt_conn * p_conn, uint8_t reason)
 
     dk_set_led_off(CON_STATUS_LED);
 
+    /* Deferred logging: sys_reboot resets the SoC without draining the log
+     * queue, so flush it explicitly. On a VCOM console this synchronously
+     * emits the disconnect reason and any pending watchdog diagnostics; on a
+     * USB console it only gets them into the CDC ACM ring before the reset. */
+    LOG_PANIC();
     sys_reboot(SYS_REBOOT_COLD);
 }
 

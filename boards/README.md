@@ -194,6 +194,7 @@ required symbols are:
 | `CONFIG_USBD_MAX_SPEED_HIGH` | `y` | High speed is the required link; full speed is a fallback. |
 | `CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT` | `n` | Avoids the NCSDK-38624 boot hang; the shared module enables the UDC on VBUS attach. |
 | `CONFIG_UART_ASYNC_API` | `n` | CDC ACM implements only the interrupt-driven UART API, not the asynchronous one. |
+| `CONFIG_USBD_CDC_ACM_WORKQUEUE` | `y` on the initiator, absent on the reflector | Runs the CDC ACM TX-drain callback on its own thread. The callback gives the COBS transmit gate that the watchdog recovery work (system workqueue) waits on while emitting its banner; on the shared system workqueue that wait would time out mid-drain. The reflector has no COBS path and does not need it. |
 | `CONFIG_LOG`, `CONFIG_LOG_MODE_DEFERRED`, `CONFIG_LOG_PROCESS_THREAD`, `CONFIG_LOG_BACKEND_UART` | `y` | Deferred console output: producers enqueue and never block on a host that does not read. |
 | `CONFIG_LOG_BLOCK_IN_THREAD` | `n` | The bounded log queue drops under pressure instead of blocking. |
 | `CONFIG_LOG_BUFFER_SIZE` | `4096` (DK) | Bounds the log queue. |
