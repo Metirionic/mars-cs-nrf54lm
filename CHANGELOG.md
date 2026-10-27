@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.2](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.2) - 2026-10-27
+#### Bug Fixes
+- repair the CS liveness watchdog recovery - ([5a6ab7f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/5a6ab7f504de1643e086861d907788c9eb93d1c2)) - AttilaRoemer, Claude Code
+#### Documentation
+- clarify the DRGN-29459 scope and path columns - ([39ffe80](https://github.com/Metirionic/mars-cs-nrf54lm/commit/39ffe80595a7ab3a90ebabd0066adbcabf9bd72f)) - AttilaRoemer, Claude Code
+- record the DRGN-29459 disposition for the TAG A1_B2 runs - ([bbdf5f5](https://github.com/Metirionic/mars-cs-nrf54lm/commit/bbdf5f52c8f71d9af1741889b690b41fb64d0b96)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.8.1](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.1) - 2026-10-27
 #### Bug Fixes
 - bump NCS v3.4.0 -> v3.4.1 - ([f4409a7](https://github.com/Metirionic/mars-cs-nrf54lm/commit/f4409a7e962d22e26eb817f502d950b4fbd14c49)) - AttilaRoemer
