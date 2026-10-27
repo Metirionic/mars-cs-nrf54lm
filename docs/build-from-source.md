@@ -109,9 +109,10 @@ parent's `.west/`). An explicit `NCS_DIR` still overrides both fallbacks.
 If you drive `west build` by hand for a preset build instead, pass the same
 `CONF_FILE`, `EXTRA_CONF_FILE`, and `DTC_OVERLAY_FILE` values the preset
 carries, and use a preset-specific `-d` build directory. The preset-less bench
-builds below — the interval-1 cadence override, the non-release debug variant,
-and the A1 4-path interop images — are deliberate exceptions. A bare
-`west build` (no `-d`) uses a single `./build/` and the two apps collide:
+builds below — the interval-1 cadence overrides (VCOM and native-USB RAS), the
+non-release debug variant, and the A1 4-path interop images — are deliberate
+exceptions. A bare `west build` (no `-d`) uses a single `./build/` and the two
+apps collide:
 
 ```
 Build directory "<build_dir>" is for application "<cached_app_dir>", but source
@@ -149,6 +150,40 @@ reports the controller's applied interval when CS procedures are enabled
 (`procedure interval: 2` on the DK, versus `10` at the default). This is a
 bench lever only — there is no runtime command surface, and release builds
 keep the default.
+
+### Native-USB RAS interval-1 bench image
+
+The native-USB RAS image used by the v0.8.0 released-image re-gate (#41) is
+the same override composed onto the `nrf54lm20dk_usb_cent_a1_4` preset: the
+USB initiator fragment is added to `EXTRA_CONF_FILE` and the USB initiator
+overlay replaces the VCOM board overlay, in the preset's fragment order.
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_4_interval1 \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/4_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE=../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay \
+  -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+```
+
+Its generated `.config`
+(`initiator/build_nrf54lm20dk_usb_cent_a1_4_interval1/initiator/zephyr/.config`)
+shows native USB, the initiator role, RAS (`CONFIG_MARS_CS_INLINE_PCT` unset),
+four maximum antenna paths, one local antenna, and the interval override:
+
+```text
+CONFIG_MARS_CS_TRANSPORT_USB=y
+CONFIG_MARS_CS_ROLE_INITIATOR=y
+CONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS=4
+CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS=1
+```
+
+Pair it with a RAS reflector and open the initiator's data function (`if00`)
+and console (`if02`) as usual. The v0.8.0 re-gate ran this image for 600 s
+against the released RAS reflector and measured 3.242 Mbit/s (see the
+[v0.8.0 release notes](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.0)).
 
 ### Non-release USB debug console (J-Link VCOM)
 
