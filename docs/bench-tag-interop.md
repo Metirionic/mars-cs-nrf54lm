@@ -281,7 +281,9 @@ The window-scoped replay found 3453 event frames among 5180 valid frames, 0
 invalid, 1729 serialized procedures, 0 aborts/watchdog/backlog/USB-drop reports
 in the window, and a captured COBS stream rate of 3.070 Mbit/s over 120 s.
 Captures, capture notes, and the scoped replay are recorded in the #38 evidence
-comment.
+comment. The tone-phase fields in this A1_B2 capture are subject to the
+[DRGN-29459 disposition](#drgn-29459-disposition-ncs-v341) below; the
+link/framing conclusions are unaffected.
 
 ### A1_B2 600 s gate evidence (#39)
 
@@ -377,6 +379,84 @@ USB console is best-effort ([ADR 0001](adr/0001-native-usb-transport.md)), so a
 later attach can lose the pre-enumeration lines (this run captured them); the
 TAG console is a post-run RTT read, so a ring wrap would lose the earliest
 lines (not observed in this run); and one host/OS configuration was measured.
+The tone-phase fields in this A1_B2 capture are subject to the
+[DRGN-29459 disposition](#drgn-29459-disposition-ncs-v341) below; the
+link/framing/rate conclusions are unaffected.
+
+## DRGN-29459 disposition (NCS v3.4.1)
+
+DRGN-29459 (SoftDevice Controller) — fixed in NCS v3.4.1 — corrected a CS
+Reflector that shifted the CS tone phase incorrectly when IPT was used with
+multiple antenna paths. This section records which of the bench runs above
+match that combination and what each result may still be used for; the audit
+is tracked in
+[#53](https://github.com/Metirionic/mars-cs-nrf54lm/issues/53).
+
+**Audit criterion.** The ticket's criterion is the **reflector** role, **IPT**,
+and **more than one negotiated antenna path**. Configured path capacity is not
+the negotiated count: `CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS` sets the
+controller's maximum, while the paths used follow the tone-antenna
+configuration selected in the procedure (the `nrfxlib` SoftDevice Controller
+Kconfig help says so explicitly). The TAG has two antennas; the LM20 DK has
+one.
+
+The SDK changelog describes DRGN-29459 only as IPT "with multiple antenna
+paths" and does not say whether the trigger is the negotiated count or merely
+multi-path support being **configured**. The table lists both. If the trigger
+is configured capacity, the #41/#52 **IPT** runs (an `a1_4` reflector with
+`MAX_ANTENNA_PATHS=4` but `NUM_ANTENNAS=1`) are also in scope for phase data;
+their published conclusions and the disposition below do not change.
+
+| Ticket | Run | Reflector | Mode | Configured paths (init / refl) | Antennas (init / refl) | Negotiated paths | Affected |
+|--------|-----|-----------|------|-------------------------------|------------------------|------------------|----------|
+| #20 | VCOM/USB gate | LM20, `a1_1` image | RAS/IPT | 1 / 1 | 1 / 1 | `A1_B1` (1) | no |
+| #35 | Bring-up smoke | LM20, `a1_1` image | IPT | 4 / 1 | 1 / 1 | `A1_B1` (1) | no |
+| #37 | LM20 re-baseline | LM20, `a1_1` image | IPT | 4 / 1 | 1 / 1 | `A1_B1` (1) | no |
+| #38 | TAG smoke | nRF54L15 TAG, pre-v3.4.1 image | IPT | 4 / 4 | 1 / 2 | `A1_B2` (2) | **yes** |
+| #39 | TAG 600 s gate | nRF54L15 TAG, pre-v3.4.1 image | IPT | 4 / 4 | 1 / 2 | `A1_B2` (2) | **yes** |
+| #41 | v0.8.0 released-image gate | LM20, `a1_4` image | RAS/IPT | 4 / 4 | 1 / 1 | `A1_B1` (1) | no\* |
+| #44 | TAG abort triage | nRF54L15 TAG, pre-v3.4.1 image | IPT | 4 / 4 | 1 / 2 | `A1_B2` (2) | **yes**, diagnostic only |
+| #51 | v3.4.1 smoke | nRF54L15 TAG, pre-v3.4.1 image | IPT | 4 / 4 | 1 / 2 | `A1_B2` (2) | **yes** |
+| #52 | v0.8.1 released-image gate | LM20, `a1_4` image | RAS/IPT | 4 / 4 | 1 / 1 | `A1_B1` (1) | no\* |
+
+Configured paths are `CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS`; antennas are
+`CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS`; the negotiated count is the `An_Bm` tone
+configuration selected in the procedure. An `a1_4` preset is one antenna with
+four-path capability, so #41/#52 configure four paths on each side yet
+negotiate `A1_B1` because each peer advertises one antenna.
+
+\* By the negotiated-path criterion. Under the configured-capacity reading
+above, the #41/#52 **IPT** runs join the phase-data caveat; their published
+conclusions are unchanged.
+
+**What stands.** The published conclusions from the affected runs are link
+establishment, the capability exchange, `A1_B2` negotiation, procedure
+completion, COBS framing, wire rate/cadence, and per-procedure payload size.
+The defect changes tone-phase values, not frame structure, lengths, counters, or
+scheduling, so those conclusions stand. No published result analyzes tone phase,
+PCT, range, or angle from these captures; the #39 residual risks above already
+record that no PCT/range semantics were validated. The payload-size comparison
+in [hardware.md](hardware.md#antenna-path-policy) (26,666 versus 26,669
+bytes/procedure) and the same figure in the v0.8.0 release notes rely on the
+`A1_B2` run for a framing/length result only.
+
+**What does not.** The raw `initiator-cobs.bin` captures from the affected runs
+must not be used for phase, PCT, range, or angle analysis. Under the
+configured-capacity reading, the #41/#52 **IPT** captures join that caveat. In
+IPT the reflector's phase contribution is embedded in the initiator's local
+tones ([architecture.md](architecture.md#ranging-data-flow)), and the reflector
+firmware in the TAG runs was the sibling `mars-cs-nrf54l` `c2253fe` build made
+before the v3.4.1 pin. The #51 smoke moved only the initiator to v3.4.1; its
+TAG reflector was still that pre-v3.4.1 build.
+
+**Re-measurement.** None is required for the published conclusions above. A
+future phase/PCT/range measurement on this bench must first rebuild the TAG
+reflector on NCS v3.4.1 (in the sibling repository) and repeat the `A1_B2`
+capture; do not mix historical and corrected captures. The sibling repository
+owns its own TAG-side measurements and should record its own disposition.
+
+The captured console output in the sections above is unchanged; this note is
+the only added disposition.
 
 ## References
 
@@ -385,6 +465,8 @@ lines (not observed in this run); and one host/OS configuration was measured.
 - [bench/nrf54l15tag_rtt_bench.conf](../bench/nrf54l15tag_rtt_bench.conf) — the
   exact bench-only RTT logging fragment.
 - [scripts/read-tag-rtt.py](../scripts/read-tag-rtt.py) — the RTT read-back tool.
+- [nRF Connect SDK v3.4.1 SoftDevice Controller changelog](https://github.com/nrfconnect/sdk-nrfxlib/blob/v3.4.1/softdevice_controller/CHANGELOG.rst) —
+  the DRGN-29459 entry.
 - [Metirionic/mars-cs-nrf54l](https://github.com/Metirionic/mars-cs-nrf54l) — the
   sibling firmware repository.
 - [nRF54L15 TAG board documentation](https://docs.nordicsemi.com/bundle/ncs-latest/page/zephyr/boards/nordic/nrf54l15tag/doc/index.html) —
