@@ -80,7 +80,7 @@ headers without pulling the full Zephyr target (`:22`).
 | `ble_scanning.{c,h}` | "BLE scanning and Ranging Service UUID filtering" — `scan_init()` configures `bt_scan` with `connect_if_match` and a filter that selects the peer by **Ranging Service UUID** (RAS) or by **advertised name** (IPT — the reflector does not advertise that UUID, so the initiator matches `CONFIG_BT_DEVICE_NAME` instead). |
 | `cs_initiator.{c,h}` | "Shared Channel Sounding initiator connection and configuration flow" — the heart of the initiator: all setup semaphores, the step-data net buffers, the RAS feature bits, the MACs, and `cs_initiator_start()` which runs the full setup handshake; also defines the local `subevent_result_cb`. |
 | `cs_step_parse.{c,h}` | "Shared CS step data parsing into SubeventResultEvent structures" — `cs_step_parse()` (RAS) converts local + peer HCI Mode-2 step records into the Rust FFI `SubeventResultEvent_t` / `Step_t` / `Mode2_t` fields; also populates the Mode-0 calibration steps (kind per role from the step `data_len`, measured frequency offset passed through raw); `cs_step_parse_inline()` (IPT) parses the local steps only and synthesizes the peer event per step with a transparent identity (1.0 + 0.0j) Phase Correction Term for Mode-2 and a zeroed `MODE0_REFLECTOR` step for Mode-0, so the downstream combiner sees a structurally valid `ORIGIN_REFLECTOR` event with a no-op phase rotation. |
-| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector); on timeout it invokes the registered recovery callback (both apps force a disconnect that reboots the pair). Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
+| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector). Its expiry runs in the system clock interrupt, arms a ~3 s hard backstop reboot, and dispatches the registered recovery callback to the system workqueue; the callback (thread context, may block) forces a disconnect that reboots the pair (the initiator also emits a COBS banner first). The backstop resets the board if the workqueue never runs the callback. The disconnect reason is 0x13 (`CS_WATCHDOG_DISCONNECT_REASON`, see `cs_watchdog.h`): the SoftDevice Controller rejects the semantically correct 0x16 with HCI status 0x12 and still reports the resulting Disconnection Complete as 0x16. Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
 | `mars_usb.{c,h}` | "Shared native USB bring-up module" — the single USB device context, string descriptors (product/PID by role, SoC-derived serial), full-speed and high-speed configurations, CDC ACM class registration, VBUS policy, and `mars_usb_init()`. Compiled into `cs_common` (initiator) and directly into the reflector `app` only when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. |
 | `subevent.{c,h}` | "CS subevent data parsing into SubeventResultEvent structures" — `subevent_populate()` (RAS) fills the initiator + reflector events from both the local and peer step buffers via `cs_step_parse()`; `subevent_populate_inline()` (IPT) fills them from the local step buffer only via `cs_step_parse_inline()` (the reflector's phase contribution is embedded in the local tones, so there is no peer buffer). Both seed the shared header through `fill_subevent_header()`. |
 | `rust_callbacks.c` | "Shared Rust FFI callback implementations" — the C functions the Rust runtime calls back into (`rust_panic_cb`, `rust_print_cb`). Compiled into the initiator `app` only. |
@@ -496,8 +496,10 @@ The main loop thread is the serialize consumer — the real work splits across
 two threads: acquire → parse → populate on the RX thread, serialize + submit on
 the main thread. For VCOM builds the submit is the asynchronous `uart_tx()`;
 for USB builds it is the copy into the full-run ring, whose drain into the CDC
-ACM driver runs on the CDC ACM workqueue. RAS uses the same split as IPT, so a
-stalled transport can no longer starve the controller in either mode.
+ACM driver runs on the CDC ACM workqueue — the driver's own thread in the
+initiator USB build (`CONFIG_USBD_CDC_ACM_WORKQUEUE`). RAS uses the same split
+as IPT, so a stalled transport can no longer starve the controller in either
+mode.
 
 For contrast, the reflector uses only two semaphores — `sem_connected` and
 `sem_config` (`reflector/src/main.c:34-36`). Its `main()` loop
@@ -682,7 +684,10 @@ IPT table above). The antenna/path counts themselves come from the
   its `COBS_TX_RUN_MAX_SIZE` full-run ring to drain, copies the complete run in
   atomically, and lets the CDC ACM IRQ callback drain the ring with
   `uart_fifo_fill` on the CDC ACM workqueue (the only context that UART API
-  allows). A run that cannot be accepted within
+  allows). The initiator USB fragment runs that work on the driver's own
+  thread (`CONFIG_USBD_CDC_ACM_WORKQUEUE`), so the callback that gives
+  `sem_tx_free` can run while the CS liveness watchdog's recovery work waits
+  on the gate from the system workqueue. A run that cannot be accepted within
   `CONFIG_MARS_CS_USB_TX_TIMEOUT_MS` is dropped and counted rather than left as
   a partial COBS frame, and a run produced before the host enumerates is
   dropped and counted rather than buffered (`mars_usb_is_configured()`). The
@@ -701,7 +706,8 @@ IPT table above). The antenna/path counts themselves come from the
   nRF54LM20-DK's 1,000,000 baud the same event drains proportionally faster.
   In **both RAS and IPT** the blocking runs on the main loop thread
   (`cs_initiator_consume_pending_event()`); for USB builds the CDC ACM drain
-  runs on the CDC ACM workqueue. The RX thread only populates the
+  runs on the CDC ACM workqueue (the driver's own thread in the initiator USB
+  build). The RX thread only populates the
   event pair (or queues a fault diagnostic) and drops the procedure at the
   `sem_event_free` gate if the consumer is still busy. Running the serialize
   back in the RX thread would starve the SDC's step-data delivery and turn

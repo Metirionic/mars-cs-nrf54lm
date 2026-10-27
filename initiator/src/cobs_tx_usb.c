@@ -12,10 +12,13 @@
  * the previous run has been fully handed to the CDC ACM driver, so runs never
  * interleave and a host stall cannot leave a partially enqueued run.
  *
- * The CDC ACM UART is drained from its IRQ callback (system workqueue
- * context), which is also the only context that calls uart_fifo_fill() — the
- * CDC ACM UART API requires its own workqueue context. The callback gives the
- * path back when the full-run ring empties.
+ * The CDC ACM UART is drained from its IRQ callback, which is also the only
+ * context that calls uart_fifo_fill() — the CDC ACM UART API requires the
+ * driver's workqueue context. The initiator USB fragment moves that work to
+ * the dedicated CDC ACM thread (CONFIG_USBD_CDC_ACM_WORKQUEUE), so the callback
+ * can give the path back while the CS liveness watchdog's recovery work waits
+ * on it from the system workqueue. The callback gives the path back when the
+ * full-run ring empties.
  *
  * Host-stall policy: the acquire wait is bounded (CONFIG_MARS_CS_USB_TX_TIMEOUT_MS)
  * even when the serializer passes K_FOREVER. A run that does not fit in that
@@ -98,8 +101,9 @@ static void cobs_usb_note_drop(const char * p_reason)
 /**
  * @brief CDC ACM UART IRQ callback: drain the full-run ring into the driver.
  *
- * Runs on the CDC ACM workqueue (the only context allowed to call
- * uart_fifo_fill()). It copies as much as the CDC ACM TX ring accepts and
+ * Runs on the CDC ACM workqueue — the driver's dedicated thread with
+ * CONFIG_USBD_CDC_ACM_WORKQUEUE, the only context allowed to call
+ * uart_fifo_fill(). It copies as much as the CDC ACM TX ring accepts and
  * stops when either the run ring is empty or the TX ring is full. The driver
  * resubmits this callback on the next TX completion, so no polling is needed.
  */
