@@ -94,7 +94,7 @@ alternatives are recorded in
   a USB run that does not negotiate 480 Mbit/s rather than letting a
   full-speed-only host pass silently.
 - High-speed USB support is described by Nordic as experimental in NCS
-  v3.4.0; it was measured working on the DK.
+  v3.4.1; it was measured working on the DK.
 
 ### Power and the onboard debugger
 

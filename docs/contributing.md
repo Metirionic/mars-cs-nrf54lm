@@ -83,7 +83,7 @@ filter). Every PR runs all jobs in
 - `detect-presets` (ubuntu-latest) — reports whether either role has build
   presets. The build jobs below consume its output and are skipped only when a
   role has no presets defined.
-- `build-initiator` (NCS v3.4.0 container) — `ci/build.sh --target initiator`
+- `build-initiator` (NCS v3.4.1 container) — `ci/build.sh --target initiator`
   over every preset in `initiator/CMakePresets.json`.
 - `build-reflector` (same container) — `ci/build.sh --target reflector` over
   every preset in `reflector/CMakePresets.json`.
@@ -168,7 +168,7 @@ explain the SDK change.
 set the repo variable to the current `west.yml` revision:
 
 ```
-gh variable set NCS_VERSION v3.4.0
+gh variable set NCS_VERSION v3.4.1
 ```
 
 Maintainers update the variable immediately before each bump merges.
