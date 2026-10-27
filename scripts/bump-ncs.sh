@@ -31,7 +31,7 @@ Usage: bump-ncs.sh <version> [options]
 Bump the NCS version across the repo: west.yml's `nrf` revision and every live
 NCS literal the scanner finds (README/docs/scripts), then open a PR.
 
-  <version>      Target NCS version, e.g. v3.4.0 (must match vMAJOR.MINOR.PATCH).
+  <version>      Target NCS version, e.g. v3.4.1 (must match vMAJOR.MINOR.PATCH).
   --dry-run      Rewrite files and run the self-check, but skip PR creation.
                  Review with `git diff` and revert with `git restore -- .`.
   --reason-file PATH  Append the reason in PATH to the bump commit body.

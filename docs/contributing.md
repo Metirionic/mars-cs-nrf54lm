@@ -127,7 +127,7 @@ update.
 ## NCS version management
 
 The NCS version has one source of truth: `west.yml`'s `nrf` project `revision`
-(e.g. `v3.4.0`). A GitHub repo variable, `vars.NCS_VERSION`, carries that version
+(e.g. `v3.4.1`). A GitHub repo variable, `vars.NCS_VERSION`, carries that version
 into the CI workflows where GitHub Actions expressions need it at job startup
 (container image tags and cache keys in `ci.yml` / `release.yml` evaluate
 `${{ vars.NCS_VERSION }}` — they cannot read `west.yml` at evaluation time).
