@@ -93,8 +93,10 @@ alternatives are recorded in
   at high speed, so a full-speed run does not meet it. The bench harness fails
   a USB run that does not negotiate 480 Mbit/s rather than letting a
   full-speed-only host pass silently.
-- High-speed USB support is described by Nordic as experimental in NCS
-  v3.4.0; it was measured working on the DK.
+- High-speed USB support is bench-validated, not production-qualified: it was
+  measured working on the DK. Earlier Nordic guidance described it as
+  experimental, but the NCS v3.4.1 release notes and nRF54L USB driver code
+  carry no experimental label.
 
 ### Power and the onboard debugger
 

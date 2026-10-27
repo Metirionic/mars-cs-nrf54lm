@@ -83,7 +83,7 @@ filter). Every PR runs all jobs in
 - `detect-presets` (ubuntu-latest) — reports whether either role has build
   presets. The build jobs below consume its output and are skipped only when a
   role has no presets defined.
-- `build-initiator` (NCS v3.4.0 container) — `ci/build.sh --target initiator`
+- `build-initiator` (NCS v3.4.1 container) — `ci/build.sh --target initiator`
   over every preset in `initiator/CMakePresets.json`.
 - `build-reflector` (same container) — `ci/build.sh --target reflector` over
   every preset in `reflector/CMakePresets.json`.
@@ -127,7 +127,7 @@ update.
 ## NCS version management
 
 The NCS version has one source of truth: `west.yml`'s `nrf` project `revision`
-(e.g. `v3.4.0`). A GitHub repo variable, `vars.NCS_VERSION`, carries that version
+(e.g. `v3.4.1`). A GitHub repo variable, `vars.NCS_VERSION`, carries that version
 into the CI workflows where GitHub Actions expressions need it at job startup
 (container image tags and cache keys in `ci.yml` / `release.yml` evaluate
 `${{ vars.NCS_VERSION }}` — they cannot read `west.yml` at evaluation time).
@@ -168,7 +168,7 @@ explain the SDK change.
 set the repo variable to the current `west.yml` revision:
 
 ```
-gh variable set NCS_VERSION v3.4.0
+gh variable set NCS_VERSION v3.4.1
 ```
 
 Maintainers update the variable immediately before each bump merges.
