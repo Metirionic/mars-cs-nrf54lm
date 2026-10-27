@@ -226,8 +226,8 @@ programming and debugging path only.
 ## Update — NCS v3.4.1 (2026-10-27)
 
 The constraints above were written against NCS v3.4.0. The repository now pins
-v3.4.1 (released as v0.8.1, issue #50), and both MPSL defects this record names
-are fixed there:
+v3.4.1 for the v0.8.1 release (issue #50), and both MPSL defects this record
+names are fixed there:
 
 - **DRGN-29129 is fixed.** `mpsl_init` no longer hangs when called after
   `mpsl_uninit` with HFCLK24M still active on the nRF54LM Series. The firmware
@@ -237,6 +237,11 @@ are fixed there:
 - **DRGN-29277 is fixed.** Releasing HFCLK24M now stops the clock, so the
   sleep-current work this record deferred is no longer blocked by the SDK. That
   follow-up power-management work is still not part of this firmware.
+
+The high-speed note in the constraints above reflects earlier Nordic guidance.
+The NCS v3.4.1 release notes, software-maturity page, and nRF54L USB driver
+documentation carry no experimental label; high speed remains bench-validated
+on the DK, not production-qualified.
 
 The decision body above, including its v3.4.0 references, is deliberately
 unchanged: it records what was decided under v3.4.0.
