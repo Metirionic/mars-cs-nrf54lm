@@ -378,6 +378,62 @@ later attach can lose the pre-enumeration lines (this run captured them); the
 TAG console is a post-run RTT read, so a ring wrap would lose the earliest
 lines (not observed in this run); and one host/OS configuration was measured.
 
+## DRGN-29459 disposition (NCS v3.4.1)
+
+DRGN-29459 (SoftDevice Controller) — fixed in NCS v3.4.1 — corrected a CS
+Reflector that shifted the CS tone phase incorrectly when IPT was used with
+multiple antenna paths. This section records which of the bench runs above
+match that combination and what each result may still be used for; the audit
+is tracked in
+[#53](https://github.com/Metirionic/mars-cs-nrf54lm/issues/53).
+
+**Affected combination.** The defect needs all three: the **reflector** role,
+**IPT**, and **more than one negotiated antenna path**. Configured path
+capacity is not the negotiated count: every current LM20 preset sets
+`CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS=4`, but the CS capability exchange
+sets the actual paths from the peer's antenna count
+([hardware.md](hardware.md#antenna-path-policy)). The TAG has two antennas; the
+LM20 DK has one.
+
+| Ticket | Run | Reflector | Mode | Configured capacity | Negotiated paths | Affected |
+|--------|-----|-----------|------|---------------------|------------------|----------|
+| #20 | VCOM/USB gate | LM20 `a1_1` | RAS/IPT | 1 / 1 | `A1_B1` (1) | no |
+| #35 | Bring-up smoke | LM20 `a1_1` | IPT | 4 / 1 | `A1_B1` (1) | no |
+| #37 | LM20 re-baseline | LM20 `a1_1` | IPT | 4 / 1 | `A1_B1` (1) | no |
+| #38 | TAG smoke | nRF54L15 TAG, pre-v3.4.1 | IPT | 4 / 2 | `A1_B2` (2) | **yes** |
+| #39 | TAG 600 s gate | nRF54L15 TAG, pre-v3.4.1 | IPT | 4 / 2 | `A1_B2` (2) | **yes** |
+| #41 | v0.8.0 released-image gate | LM20 `a1_4` | RAS/IPT | 4 / 4 | `A1_B1` (1) | no |
+| #44 | TAG abort triage | nRF54L15 TAG, pre-v3.4.1 | IPT | 4 / 2 | `A1_B2` (2) | **yes**, diagnostic only |
+| #51 | v3.4.1 smoke | nRF54L15 TAG, pre-v3.4.1 | IPT | 4 / 2 | `A1_B2` (2) | **yes** |
+| #52 | v0.8.1 released-image gate | LM20 `a1_4` | RAS/IPT | 4 / 4 | `A1_B1` (1) | no |
+
+**What stands.** The published conclusions from the affected runs are link
+establishment, the capability exchange, `A1_B2` negotiation, procedure
+completion, COBS framing, wire rate/cadence, and per-procedure payload size.
+The defect changes tone-phase values, not frame structure, lengths, counters, or
+scheduling, so those conclusions stand. No published result analyzes tone phase,
+PCT, range, or angle from these captures; the payload-size comparison in
+[hardware.md](hardware.md#antenna-path-policy) (26,666 versus 26,669
+bytes/procedure) and the same figure in the v0.8.0 release notes rely on the
+`A1_B2` run for a framing/length result only.
+
+**What does not.** The raw `initiator-cobs.bin` captures from the affected runs
+must not be used for phase, PCT, range, or angle analysis. In IPT the
+reflector's phase contribution is embedded in the initiator's local tones
+([architecture.md](architecture.md#ranging-data-flow)), and the reflector
+firmware in those runs was the sibling `mars-cs-nrf54l` `c2253fe` build made
+before the v3.4.1 pin. The #51 smoke moved only the initiator to v3.4.1; its
+TAG reflector was still that pre-v3.4.1 build.
+
+**Re-measurement.** None is required for the published conclusions above. A
+future phase/PCT/range measurement on this bench must first rebuild the TAG
+reflector on NCS v3.4.1 (in the sibling repository) and repeat the `A1_B2`
+capture; do not mix historical and corrected captures. The sibling repository
+owns its own TAG-side measurements and should record its own disposition.
+
+The captured console output in the sections above is unchanged; this note is
+the only added disposition.
+
 ## References
 
 - [docs/hardware.md](hardware.md) — the nRF54LM20-DK board contract and wiring.

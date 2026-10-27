@@ -262,6 +262,10 @@ shipped policy: the mixed LM20↔nRF54L15 TAG run negotiated `A1_B2` and measure
 26,666 bytes per procedure against 26,669 in the `A1_B1` re-baseline — a
 value-variance difference, not a payload growth. See
 [docs/bench-tag-interop.md](bench-tag-interop.md#a1_b2-600-s-gate-evidence-39).
+The tone-phase fields in that capture are subject to the DRGN-29459 caveat in
+the interop runbook
+([disposition](bench-tag-interop.md#drgn-29459-disposition-ncs-v341)); the
+payload-size conclusion is a framing/length result and is unaffected.
 
 ### Kconfig fragments
 
