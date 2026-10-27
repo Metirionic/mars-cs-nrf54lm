@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.1](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.1) - 2026-10-27
+#### Bug Fixes
+- repair NCS version management (#49) - ([9d964e3](https://github.com/Metirionic/mars-cs-nrf54lm/commit/9d964e3ea14e2100e0bb63e36439e6f1c810557d)) - AttilaRoemer
+#### Documentation
+- sharpen the v0.8.0 gate scope and interval-1 recipe - ([be8010f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/be8010f7685d4336ac036ed32e6e2d38337f25f5)) - AttilaRoemer, Claude Code
+- document the native-USB RAS interval-1 bench build - ([ab2ec80](https://github.com/Metirionic/mars-cs-nrf54lm/commit/ab2ec801a7e9c553ffc882be63d1dc708251545b)) - AttilaRoemer, Claude Code
+- record the v0.8.0 four-path release and released-image gate - ([cacc4fa](https://github.com/Metirionic/mars-cs-nrf54lm/commit/cacc4fa62b5577b98ef2cd0202f3ae4178e32d8e)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.8.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.0) - 2026-10-26
 #### Features
 - make all LM20 presets four-path-capable and rename to a1_4 - ([182a594](https://github.com/Metirionic/mars-cs-nrf54lm/commit/182a594b8e5346935cc3291643bbbbf0da4d9319)) - AttilaRoemer, Claude Code
