@@ -22,9 +22,9 @@
 # Fork-PR note: GitHub does not pass repo variables to pull_request runs from
 # forks (public repo; the "send vars to fork PRs" toggle is private-repo-only),
 # so vars.NCS_VERSION is empty there. ci.yml sets ENFORCE_NCS_VAR=false on fork
-# PRs, so the guard skips the variable cross-check and runs the literal-only
-# scan. Pushes, same-repo PRs, and release.yml (ENFORCE_NCS_VAR defaulting
-# true) enforce the full check.
+# PRs. All pull requests skip the variable cross-check so a bump PR can be
+# reviewed before the maintainer updates the variable just before merging.
+# Default-branch pushes and release.yml enforce the full check.
 #
 # Mirrors scripts/check-docs.sh: set -euo pipefail, an errors counter + summary
 # list, a GITHUB_STEP_SUMMARY block, and a 1/0 exit with a pass/fail message.
@@ -78,12 +78,16 @@ fi
 
 # Every NCS literal in the repo (excluding west.yml, the source) must equal the
 # canonical revision.
+if ! refs="$(find_ncs_refs)"; then
+  add_error "NCS reference scanner failed"
+  exit 1
+fi
 while IFS=: read -r file lineno version; do
   [[ -z "${version:-}" ]] && continue
   if [[ "$version" != "$expected" ]]; then
     add_error "stale NCS literal at ${file}:${lineno}: got ${version}, expected ${expected}"
   fi
-done < <(find_ncs_refs)
+done <<< "$refs"
 
 # --- report -----------------------------------------------------------------
 
