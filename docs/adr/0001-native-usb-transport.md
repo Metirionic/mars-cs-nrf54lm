@@ -222,3 +222,21 @@ programming and debugging path only.
   `boards/nrf54lm20dk_usb_*.conf`, and the non-release debug pair
   `boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator_debug.overlay` /
   `boards/nrf54lm20dk_usb_initiator_debug.conf`.
+
+## Update — NCS v3.4.1 (2026-10-27)
+
+The constraints above were written against NCS v3.4.0. The repository now pins
+v3.4.1 (released as v0.8.1, issue #50), and both MPSL defects this record names
+are fixed there:
+
+- **DRGN-29129 is fixed.** `mpsl_init` no longer hangs when called after
+  `mpsl_uninit` with HFCLK24M still active on the nRF54LM Series. The firmware
+  still calls `mars_usb_init()` after `bt_enable()`: the fix makes that
+  ordering unnecessary, not wrong, and changing it is a behavior change that
+  deserves its own justification and validation.
+- **DRGN-29277 is fixed.** Releasing HFCLK24M now stops the clock, so the
+  sleep-current work this record deferred is no longer blocked by the SDK. That
+  follow-up power-management work is still not part of this firmware.
+
+The decision body above, including its v3.4.0 references, is deliberately
+unchanged: it records what was decided under v3.4.0.
