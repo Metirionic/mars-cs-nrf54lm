@@ -95,8 +95,8 @@ alternatives are recorded in
   full-speed-only host pass silently.
 - High-speed USB support is bench-validated, not production-qualified: it was
   measured working on the DK. Earlier Nordic guidance described it as
-  experimental, but the NCS v3.4.1 release notes and nRF54L USB driver
-  documentation carry no experimental label.
+  experimental, but the NCS v3.4.1 release notes and nRF54L USB driver code
+  carry no experimental label.
 
 ### Power and the onboard debugger
 

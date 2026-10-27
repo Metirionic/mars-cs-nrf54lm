@@ -240,8 +240,8 @@ names are fixed there:
 
 The high-speed note in the constraints above reflects earlier Nordic guidance.
 The NCS v3.4.1 release notes, software-maturity page, and nRF54L USB driver
-documentation carry no experimental label; high speed remains bench-validated
-on the DK, not production-qualified.
+Kconfig and source carry no experimental label; high speed remains
+bench-validated on the DK, not production-qualified.
 
 The decision body above, including its v3.4.0 references, is deliberately
 unchanged: it records what was decided under v3.4.0.
