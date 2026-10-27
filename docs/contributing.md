@@ -75,9 +75,9 @@ filter). Every PR runs all jobs in
 [.github/workflows/ci.yml](../.github/workflows/ci.yml). All must be green:
 
 - `verify-ncs-version` (ubuntu-latest) — runs `scripts/check-ncs-version.sh` to
-  assert every NCS version literal agrees with `west.yml`'s `nrf` revision and
-  the `vars.NCS_VERSION` repo variable. See the NCS version management section
-  below.
+  assert every live NCS version literal agrees with `west.yml`'s `nrf` revision.
+  Default-branch pushes also check the `vars.NCS_VERSION` repo variable. See the
+  NCS version management section below.
 - `lint` (ubuntu-latest) — `pre-commit/action@v3.0.1` runs
   `pre-commit run --all-files`. This is the only place the hooks above are enforced.
 - `detect-presets` (ubuntu-latest) — reports whether either role has build
@@ -136,17 +136,33 @@ A shared scanner (`scripts/ncs-version-lib.sh`) defines what counts as an NCS
 version reference and is used by two scripts:
 
 - `scripts/check-ncs-version.sh` — the guard. Verifies every NCS literal in the
-  repo (README, docs, scripts, cache keys) agrees with `west.yml`, and in CI also
-  that `vars.NCS_VERSION` agrees with it. Fails loudly on a stale literal, a
+  repo (README, live docs, scripts, container tags, cache keys) agrees with
+  `west.yml`, and on default-branch CI also that `vars.NCS_VERSION` agrees with
+  it. Archived release notes, decision records, and captured boot banners stay
+  as historical records. Fails loudly on a stale live literal, a
   mismatched variable, or an unset variable (which would otherwise produce an
   opaque tagless container image). Run locally with
   `bash scripts/check-ncs-version.sh`.
 - `scripts/bump-ncs.sh <version>` — the bump operation. The single way to move
-  the NCS version: rewrites `west.yml`'s revision and every literal the scanner
-  finds, sets `vars.NCS_VERSION` to match, runs the guard as a self-check, and
-  opens a PR. README/docs update automatically because the script *is* the bump.
-  Use `--dry-run` to preview the rewrites locally without touching the variable
-  or opening a PR.
+  the NCS version: checks the clean default branch, upstream tag, and toolchain
+  image; rewrites `west.yml` and every live literal the scanner finds; runs the
+  guard as a self-check; and opens a PR. Use `--dry-run` to preview rewrites
+  locally without opening a PR. The script never changes `vars.NCS_VERSION`.
+
+Before proposing a bump, read both the target SDK release notes and the
+radio-stack library changelogs for changes that affect channel sounding,
+Bluetooth, USB, or the toolchain. The v3.4.2 and v3.5.0 upgrade decisions are
+deferred; this machinery repair does not choose either version.
+
+Immediately before merging the bump PR, set `vars.NCS_VERSION` to its proposed
+`west.yml` revision. Do not merge another PR in that window. The release
+workflow selects its toolchain image using that variable before it checks out
+the manifest, so it must be ready for the merge. Pull-request CI scans the
+proposed files but does not compare the variable while the PR is open. Use a
+`fix:` bump commit so the release tool cuts a patch release on merge.
+For the v3.4.1 bump, pass `--reason-file PATH` with a body naming DRGN-29129,
+DRGN-29277, DRGN-29459, and DRGN-29669 so the commit and release notes
+explain the SDK change.
 
 **One-time bootstrap:** before this mechanism goes live (or after cloning for CI),
 set the repo variable to the current `west.yml` revision:
@@ -155,7 +171,7 @@ set the repo variable to the current `west.yml` revision:
 gh variable set NCS_VERSION v3.4.0
 ```
 
-The bump script updates the variable on each bump thereafter.
+Maintainers update the variable immediately before each bump merges.
 
 ## Out of scope
 
