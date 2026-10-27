@@ -3,6 +3,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.1](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.1) - 2026-10-27
+#### Bug Fixes
+- bump NCS v3.4.0 -> v3.4.1 - ([f4409a7](https://github.com/Metirionic/mars-cs-nrf54lm/commit/f4409a7e962d22e26eb817f502d950b4fbd14c49)) - AttilaRoemer
+- repair NCS version management (#49) - ([9d964e3](https://github.com/Metirionic/mars-cs-nrf54lm/commit/9d964e3ea14e2100e0bb63e36439e6f1c810557d)) - AttilaRoemer
+#### Documentation
+- name the checked driver sources in the high-speed caveat - ([026bf7e](https://github.com/Metirionic/mars-cs-nrf54lm/commit/026bf7e5e4a99dfc093d0dec92713bfb438b5330)) - AttilaRoemer, Claude Code
+- reword the high-speed caveat after v3.4.1 verification - ([37f8ddf](https://github.com/Metirionic/mars-cs-nrf54lm/commit/37f8ddfbf90c0708829fdeac1e139beda0bb8858)) - AttilaRoemer, Claude Code
+- add the v0.8.1 release notes - ([2f4f6c8](https://github.com/Metirionic/mars-cs-nrf54lm/commit/2f4f6c84dbb9843b62b979064be990d9c92a0ffb)) - AttilaRoemer, Claude Code
+- refresh the live NCS version examples - ([eec2076](https://github.com/Metirionic/mars-cs-nrf54lm/commit/eec2076d6b688cfda9dd6cacfdb478e2478255a0)) - AttilaRoemer, Claude Code
+- record the v3.4.1 MPSL fixes in ADR 0001 - ([6bffadb](https://github.com/Metirionic/mars-cs-nrf54lm/commit/6bffadb3bb3586bec19cab17bf4787579f91aaf4)) - AttilaRoemer, Claude Code
+- sharpen the v0.8.0 gate scope and interval-1 recipe - ([be8010f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/be8010f7685d4336ac036ed32e6e2d38337f25f5)) - AttilaRoemer, Claude Code
+- document the native-USB RAS interval-1 bench build - ([ab2ec80](https://github.com/Metirionic/mars-cs-nrf54lm/commit/ab2ec801a7e9c553ffc882be63d1dc708251545b)) - AttilaRoemer, Claude Code
+- record the v0.8.0 four-path release and released-image gate - ([cacc4fa](https://github.com/Metirionic/mars-cs-nrf54lm/commit/cacc4fa62b5577b98ef2cd0202f3ae4178e32d8e)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.8.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.0) - 2026-10-26
 #### Features
 - make all LM20 presets four-path-capable and rename to a1_4 - ([182a594](https://github.com/Metirionic/mars-cs-nrf54lm/commit/182a594b8e5346935cc3291643bbbbf0da4d9319)) - AttilaRoemer, Claude Code
