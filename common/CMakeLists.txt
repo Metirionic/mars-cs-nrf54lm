@@ -12,6 +12,12 @@ add_library(
   subevent.c
   addr_utils.c)
 
+# cs_common uses plain add_library(), so it does not inherit zephyr_library()'s
+# dependency on the generated headers. A clean parallel build can otherwise
+# compile cs_initiator.c before zephyr/heap_constants.h exists, which made the
+# onboarding CI job fail intermittently.
+add_dependencies(cs_common zephyr_generated_headers)
+
 # The USB bring-up module is compiled only for native USB builds, so VCOM builds
 # compile no USB code at all.
 if(CONFIG_MARS_CS_TRANSPORT_USB)
