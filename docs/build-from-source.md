@@ -150,6 +150,38 @@ reports the controller's applied interval when CS procedures are enabled
 bench lever only — there is no runtime command surface, and release builds
 keep the default.
 
+The native-USB RAS image used by the v0.8.0 released-image re-gate (#41) is
+the same override composed onto the `nrf54lm20dk_usb_cent_a1_4` preset: the
+USB initiator fragment and overlay replace the VCOM board overlay, and the
+fragment order follows the preset.
+
+```bash
+west build -p always -d initiator/build_nrf54lm20dk_usb_cent_a1_4_interval1 \
+  -b nrf54lm20dk/nrf54lm20a/cpuapp initiator -- \
+  -DCONF_FILE=prj.conf \
+  -DEXTRA_CONF_FILE="central.overlay;../boards/nrf54lm20dk_usb_initiator.conf;../boards/4_path_1_local.conf" \
+  -DDTC_OVERLAY_FILE=../boards/nrf54lm20dk_nrf54lm20a_cpuapp_usb_initiator.overlay \
+  -DCONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+```
+
+Its generated `.config`
+(`initiator/build_nrf54lm20dk_usb_cent_a1_4_interval1/initiator/zephyr/.config`)
+shows native USB, the initiator role, RAS (`CONFIG_MARS_CS_INLINE_PCT` unset),
+four maximum antenna paths, one local antenna, and the interval override:
+
+```text
+CONFIG_MARS_CS_TRANSPORT_USB=y
+CONFIG_MARS_CS_ROLE_INITIATOR=y
+CONFIG_MARS_CS_PROCEDURE_INTERVAL=1
+CONFIG_BT_CTLR_SDC_CS_MAX_ANTENNA_PATHS=4
+CONFIG_BT_CTLR_SDC_CS_NUM_ANTENNAS=1
+```
+
+Pair it with a RAS reflector and open the initiator's data function (`if00`)
+and console (`if02`) as usual. The v0.8.0 re-gate ran this image for 600 s
+against the released RAS reflector and measured 3.242 Mbit/s (see the
+v0.8.0 release notes).
+
 ### Non-release USB debug console (J-Link VCOM)
 
 For bring-up, the native USB initiator can keep its COBS stream on the USB data
