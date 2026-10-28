@@ -223,6 +223,35 @@ static void config_create_hook(struct bt_conn_le_cs_config * config)
     cs_config = *config;
 }
 
+/**
+ * @brief Emit the terminal COBS frame for a disconnect (#59).
+ *
+ * Runs on the BT RX thread from the shared disconnected callback, before the
+ * reboot. Closes the ranging stream first, so no later run can follow the
+ * terminal frame, then formats the reason exactly as the console line does
+ * and hands the frame to the bounded log path: acquire, submit, and drain must
+ * all fit CONFIG_MARS_CS_DISCONNECT_FRAME_TIMEOUT_MS, after which the reboot
+ * wins. A stalled host therefore costs the frame, never the recovery.
+ *
+ * The value is the controller's Disconnection Complete reason: the watchdog's
+ * HCI command uses 0x13 because the SDC rejects 0x16, but the resulting event
+ * still reports 0x16 (see common/cs_watchdog.h).
+ */
+static void disconnected_hook(uint8_t reason)
+{
+    serialize_close_stream();
+
+    char message[32];
+    int  len = snprintf(message, sizeof(message), BLE_CALLBACKS_DISCONNECT_REASON_FORMAT, reason);
+
+    if ((len < 0) || ((size_t)len >= sizeof(message)))
+    {
+        return;
+    }
+
+    (void)serialize_send_log_message_bounded(message, K_MSEC(CONFIG_MARS_CS_DISCONNECT_FRAME_TIMEOUT_MS));
+}
+
 /** @brief Fallback reboot if the watchdog's forced disconnect never completes. */
 static void reboot_fallback_handler(struct k_timer * timer)
 {
@@ -334,6 +363,11 @@ int main(void)
     /* CS liveness watchdog (#116): inert until the first completed procedure
      * with step data pets it, so the handshake never false-triggers it. */
     cs_watchdog_init(cs_watchdog_recovery_cb);
+
+    /* Terminal COBS frame on disconnect (#59): the initiator owns the COBS
+     * stream, so it registers the hook on the shared BLE callbacks. The
+     * reflector has no COBS stream and registers nothing. */
+    ble_callbacks_set_disconnected_hook(disconnected_hook);
 
     /* Both modes populate on the RX thread and serialize on this thread: RAS
      * from ranging_data_cb, IPT from the shared procedure-completion skeleton. */

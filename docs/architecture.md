@@ -30,12 +30,12 @@ Two firmware roles plus a shared library:
 
 | File | Purpose (`@brief`) |
 |------|---------------------|
-| `main.c` | "Channel Sounding initiator with ranging requester sample" — app entry: registers the consumer-thread callback `process_subevent_cb` for both modes, the RAS-only `process_log_cb`, and the RAS `ranging_data_cb` / `ranging_data_ready_cb`, builds the `cs_initiator_config`, calls `cs_initiator_start`, and runs the consumer loop. `main()` at `initiator/src/main.c:279`. |
-| `serialize.c` | "Channel Sounding data serializer" — parses local + peer step data into `SubeventResultEvent_t`, calls the Rust COBS serializer, and hands each complete serialization run to the COBS TX seam. |
-| `serialize.h` | Prototypes for `serialize_run` and `serialize_send_log_message`. |
-| `cobs_tx.h` | Transport-neutral COBS TX seam: acquire the run buffer, submit one complete run, release a run that was not submitted. `COBS_TX_RUN_MAX_SIZE` is the largest run the seam accepts. |
-| `cobs_tx_vcom.c` | VCOM COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is off) — owns the `cobs-uart` device, the asynchronous `uart_tx` submission, and the `sem_tx_done` TX-done gate. |
-| `cobs_tx_usb.c` | USB COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is on) — owns the CDC ACM data UART (chosen `cobs-uart`), a `COBS_TX_RUN_MAX_SIZE` full-run ring, and the IRQ-callback drain into the driver with `uart_fifo_fill`; `sem_tx_free` gates the run path. |
+| `main.c` | "Channel Sounding initiator with ranging requester sample" — app entry: registers the consumer-thread callback `process_subevent_cb` for both modes, the RAS-only `process_log_cb`, and the RAS `ranging_data_cb` / `ranging_data_ready_cb`, builds the `cs_initiator_config`, calls `cs_initiator_start`, and runs the consumer loop. Also registers `disconnected_hook` on the shared BLE callbacks: the bounded terminal COBS frame carrying the disconnect reason. `main()` at `initiator/src/main.c:322`. |
+| `serialize.c` | "Channel Sounding data serializer" — parses local + peer step data into `SubeventResultEvent_t`, calls the Rust COBS serializer, and hands each complete serialization run to the COBS TX seam. Owns the disconnect-path stream close and the bounded terminal-frame emission. |
+| `serialize.h` | Prototypes for `serialize_run`, `serialize_send_log_message`, `serialize_close_stream`, and `serialize_send_log_message_bounded`. |
+| `cobs_tx.h` | Transport-neutral COBS TX seam: acquire the run buffer, submit one complete run, release a run that was not submitted, and wait (bounded) for a submitted run to drain. `COBS_TX_RUN_MAX_SIZE` is the largest run the seam accepts. |
+| `cobs_tx_vcom.c` | VCOM COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is off) — owns the `cobs-uart` device, the asynchronous `uart_tx` submission, and the `sem_tx_done` TX-done gate; `cobs_tx_idle()` waits on that gate. |
+| `cobs_tx_usb.c` | USB COBS TX backend (built when `CONFIG_MARS_CS_TRANSPORT_USB` is on) — owns the CDC ACM data UART (chosen `cobs-uart`), a `COBS_TX_RUN_MAX_SIZE` full-run ring, and the IRQ-callback drain into the driver with `uart_fifo_fill`; `sem_tx_free` gates the run path and `cobs_tx_idle()` waits on it plus a bounded settle window for the driver's ring. |
 
 `initiator/CMakeLists.txt`:
 
@@ -76,11 +76,11 @@ headers without pulling the full Zephyr target (`:22`).
 |------|---------------------|
 | `addr_utils.{c,h}` | "Shared BLE address utility functions" — `addr_to_u64()` packs a `bt_addr_le_t` into a `uint64_t`. |
 | `antenna.{c,h}` | "Antenna configuration lookup tables for Channel Sounding" — `get_antenna_config()` / `get_preferred_peer_antenna()` map the Kconfig antenna/path counts to a CS tone-antenna config and a preferred-peer bitmask. |
-| `ble_callbacks.{c,h}` | "Shared BLE connection and Channel Sounding callbacks" — owns the `BT_CONN_CB_DEFINE(conn_cb)` connection-callback table and the connection ref for the initiator; forwards CS subevent-data and config-created events to registered user callbacks; gives five of the setup semaphores. |
+| `ble_callbacks.{c,h}` | "Shared BLE connection and Channel Sounding callbacks" — owns the `BT_CONN_CB_DEFINE(conn_cb)` connection-callback table and the connection ref for the initiator; forwards CS subevent-data and config-created events to registered user callbacks; gives five of the setup semaphores. Exposes a disconnect hook (`ble_callbacks_set_disconnected_hook()`) so the initiator can emit its terminal COBS frame before the reboot; the shared module carries no serializer dependency and the reflector never sets the hook. |
 | `ble_scanning.{c,h}` | "BLE scanning and Ranging Service UUID filtering" — `scan_init()` configures `bt_scan` with `connect_if_match` and a filter that selects the peer by **Ranging Service UUID** (RAS) or by **advertised name** (IPT — the reflector does not advertise that UUID, so the initiator matches `CONFIG_BT_DEVICE_NAME` instead). |
 | `cs_initiator.{c,h}` | "Shared Channel Sounding initiator connection and configuration flow" — the heart of the initiator: all setup semaphores, the step-data net buffers, the RAS feature bits, the MACs, and `cs_initiator_start()` which runs the full setup handshake; also defines the local `subevent_result_cb`. |
 | `cs_step_parse.{c,h}` | "Shared CS step data parsing into SubeventResultEvent structures" — `cs_step_parse()` (RAS) converts local + peer HCI Mode-2 step records into the Rust FFI `SubeventResultEvent_t` / `Step_t` / `Mode2_t` fields; also populates the Mode-0 calibration steps (kind per role from the step `data_len`, measured frequency offset passed through raw); `cs_step_parse_inline()` (IPT) parses the local steps only and synthesizes the peer event per step with a transparent identity (1.0 + 0.0j) Phase Correction Term for Mode-2 and a zeroed `MODE0_REFLECTOR` step for Mode-0, so the downstream combiner sees a structurally valid `ORIGIN_REFLECTOR` event with a no-op phase rotation. |
-| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector). Its expiry runs in the system clock interrupt, arms a ~3 s hard backstop reboot, and dispatches the registered recovery callback to the system workqueue; the callback (thread context, may block) forces a disconnect that reboots the pair (the initiator also emits a COBS banner first). The backstop resets the board if the workqueue never runs the callback. The disconnect reason is 0x13 (`CS_WATCHDOG_DISCONNECT_REASON`, see `cs_watchdog.h`): the SoftDevice Controller rejects the semantically correct 0x16 with HCI status 0x12 and still reports the resulting Disconnection Complete as 0x16. Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
+| `cs_watchdog.{c,h}` | "CS liveness watchdog" — the #116 recovery mechanism: a timer pets only on completed procedures with step data (initiator) or completed subevents with steps (reflector). Its expiry runs in the system clock interrupt, arms a ~3 s hard backstop reboot, and dispatches the registered recovery callback to the system workqueue; the callback (thread context, may block) forces a disconnect that reboots the pair (the initiator also emits a COBS banner first). The backstop resets the board if the workqueue never runs the callback. The disconnect reason is 0x13 (`CS_WATCHDOG_DISCONNECT_REASON`, see `cs_watchdog.h`): the SoftDevice Controller rejects the semantically correct 0x16 with HCI status 0x12 and still reports the resulting Disconnection Complete as 0x16 — which the initiator's terminal COBS frame records. Built into `cs_common` for the initiator and compiled directly into the reflector `app`, so both roles run it. |
 | `mars_usb.{c,h}` | "Shared native USB bring-up module" — the single USB device context, string descriptors (product/PID by role, SoC-derived serial), full-speed and high-speed configurations, CDC ACM class registration, VBUS policy, and `mars_usb_init()`. Compiled into `cs_common` (initiator) and directly into the reflector `app` only when `CONFIG_MARS_CS_TRANSPORT_USB` is enabled. |
 | `subevent.{c,h}` | "CS subevent data parsing into SubeventResultEvent structures" — `subevent_populate()` (RAS) fills the initiator + reflector events from both the local and peer step buffers via `cs_step_parse()`; `subevent_populate_inline()` (IPT) fills them from the local step buffer only via `cs_step_parse_inline()` (the reflector's phase contribution is embedded in the local tones, so there is no peer buffer). Both seed the shared header through `fill_subevent_header()`. |
 | `rust_callbacks.c` | "Shared Rust FFI callback implementations" — the C functions the Rust runtime calls back into (`rust_panic_cb`, `rust_print_cb`). Compiled into the initiator `app` only. |
@@ -221,7 +221,7 @@ End-to-end on the initiator:
    `config_create_hook` (`initiator/src/main.c:220`).
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:356`, defined at
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:417`, defined at
    `common/cs_initiator.c:263`), which waits on `sem_data_ready`, drains any
    queued diagnostic frames (each via `process_log_cb` →
    `serialize_send_log_message()`), runs the app's `process_subevent_cb` →
@@ -229,16 +229,16 @@ End-to-end on the initiator:
    releases `sem_event_free`. RAS does not pet the watchdog here — its pet stays
    on the RX-thread completion signal above (IPT pets in
    `process_subevent_cb`, at the consume rate). `serialize_run()`
-   (`initiator/src/serialize.c:162-238`)
+   (`initiator/src/serialize.c:253-330`)
    acquires the run path via `cobs_tx_acquire()` — the VCOM backend takes the
    `sem_tx_done` TX-complete gate there, while the USB backend takes
    `sem_tx_free` and gives it back when its full-run ring has been handed to
    the CDC ACM driver — then `serialize_append_event()`
    calls `serialize_subevent_result_event(p_event, true)` (Rust FFI, COBS on,
-   `:94`) for each of the local and peer events; the returned `SerializedData_t` is
+   `:119`) for each of the local and peer events; the returned `SerializedData_t` is
    copied into the static `g_serialized[]` buffer by `serialize_cb()` and freed
    with `drop_bin()`, followed by a `serialize_log_message("Processing finished")`.
-   Finally `cobs_tx_write(g_serialized, g_total_written_size, K_FOREVER)` (`:219`)
+   Finally `cobs_tx_write(g_serialized, g_total_written_size, K_FOREVER)` (`:311`)
    hands the whole run to the build-selected backend. VCOM builds submit it with
    `uart_tx(...)` (`initiator/src/cobs_tx_vcom.c:112`); USB builds copy the run
    atomically into `cobs_usb_tx_ring` and drain it from the CDC ACM IRQ callback
@@ -352,7 +352,7 @@ setup.
      (`common/cs_initiator.c:480-490`), mirroring the RAS error path.
 
 4. **Serialize + COBS over the TX seam (main loop thread).** The main loop calls
-   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:356`, defined at
+   `cs_initiator_consume_pending_event()` (`initiator/src/main.c:417`, defined at
    `common/cs_initiator.c:263-288`), which waits on `sem_data_ready` (`:265`),
    drains any queued diagnostics, runs the app's `process_subevent_cb` →
    `cs_watchdog_pet()` + `serialize_run()` on the **main loop thread**, then
@@ -483,7 +483,7 @@ handoff claim gives it only if it queued a diagnostic frame (the RAS fault
 paths do); the IPT empty/aborted path and every failed event-pair claim queue
 nothing.
 
-**The main loop** (`initiator/src/main.c:351-357`, end of `main()`) is the
+**The main loop** (`initiator/src/main.c:412-418`, end of `main()`) is the
 serialize consumer for both modes:
 
 ```c
@@ -525,7 +525,7 @@ second, reflector console only (see
 ### Bring-up and VBUS policy
 
 Both applications call `mars_usb_init()` after `bt_enable()`
-(`initiator/src/main.c:313`, `reflector/src/main.c:340`). The ordering is
+(`initiator/src/main.c:355`, `reflector/src/main.c:340`). The ordering is
 deliberate: USB high speed uses HFCLK24M, which MPSL also owns (DRGN-29129).
 `mars_usb_init()` (`common/mars_usb.c:253`) registers the descriptors and the
 role's CDC ACM class instances, adds a high-speed and a full-speed
@@ -602,7 +602,7 @@ this repo reads `ant-gpios` (see
 
 The one devicetree-controlled app behaviour is the optional RF-switch supply:
 when a board overlay defines `rf-switch-supply-gpios` on the `zephyr,user`
-node, `initiator/src/main.c:283-296` drives it with `GPIO_OUTPUT_ACTIVE` at
+node, `initiator/src/main.c:326-339` drives it with `GPIO_OUTPUT_ACTIVE` at
 boot; boards without the property compile the block out. The port and pin are
 entirely board-owned — no model-specific assignment lives in shared code.
 
@@ -718,6 +718,32 @@ IPT table above). The antenna/path counts themselves come from the
   both the minimum and maximum procedure interval; the bench builds it at 1 for
   the transport-headroom run (see
   [docs/build-from-source.md](build-from-source.md#bench-cadence-override-procedure-interval)).
+- **The disconnect path emits one bounded terminal COBS frame.** The shared
+  callbacks carry no serializer dependency, so `common/ble_callbacks.{c,h}`
+  exposes `ble_callbacks_set_disconnected_hook()` and calls the hook from
+  `disconnected_cb()` on the BT RX thread — with the controller-reported
+  Disconnection Complete reason, before `LOG_PANIC()` and `sys_reboot()`. The
+  initiator registers `disconnected_hook` (`initiator/src/main.c`), which first
+  closes the ranging stream and then emits `Disconnected (reason 0xNN)`, the
+  same text as the console line, through `serialize_send_log_message_bounded()`
+  (`initiator/src/serialize.c`). That is one complete serialization run through
+  the same acquire/write seam as a ranging run, so it cannot interleave with
+  one. The write path is asynchronous, so the emission then waits for the run
+  to leave the firmware's buffers via `cobs_tx_idle()`: VCOM waits on the UART
+  async TX-done signal; USB waits for its full-run ring to be handed to the CDC
+  ACM driver, then settles for `COBS_TX_IDLE_BOUND_MS` (50 ms) because the
+  CDC ACM UART API implements no TX-complete signal — the class ring and the IN
+  transfer follow. The whole emission — acquire, serialize, submit, drain — is
+  bounded by `CONFIG_MARS_CS_DISCONNECT_FRAME_TIMEOUT_MS` (default 200 ms),
+  with part of the budget reserved for the drain so a busy seam drops the frame
+  cleanly instead of submitting one the reboot would cut.
+  `serialize_close_stream()` makes the terminal frame the last one:
+  `serialize_run()` checks the flag before and after it acquires the seam, and
+  `serialize_send_log_message()` does the same, so no ranging or diagnostic run
+  can follow. The reflector never sets the hook and emits nothing. This is how
+  a host capturing only the data port distinguishes a watchdog-induced
+  disconnect (the Disconnection Complete reports 0x16) from a supervision
+  timeout or a peer reset.
 - **`mars_bluetooth_hci.h` is checked into the crate, not regenerated during the
   firmware build.** The crate's CMake runs only `cargo build --lib`, not the
   header-generator bin, so the firmware consumes the pre-generated header.

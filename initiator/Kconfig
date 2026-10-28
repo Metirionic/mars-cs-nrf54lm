@@ -32,6 +32,25 @@ config MARS_CS_PROCEDURE_INTERVAL
 	  factor. This is a build-time bench lever; there is no runtime
 	  control.
 
+config MARS_CS_DISCONNECT_FRAME_TIMEOUT_MS
+	int "Bound on the initiator's disconnect COBS frame (ms)"
+	default 200
+	range 20 2000
+	depends on BT_CHANNEL_SOUNDING
+	help
+	  Maximum time the initiator spends emitting the terminal COBS log
+	  frame that carries the BLE disconnect reason, measured from the
+	  disconnect callback to the drain completing. The frame is best
+	  effort: if the transmit path cannot be acquired, serialized,
+	  submitted, and drained within this bound — a ranging run is still
+	  in flight, the host has stalled, or the transport is wedged — the
+	  reboot proceeds without it.
+
+	  The bound covers the acquisition wait as well as the drain, so the
+	  reboot is never held past it. The default of 200 ms is below the
+	  healthy procedure cadence (~330 ms at the default interval) and well
+	  below the CS liveness watchdog's 3 s backstop.
+
 endmenu
 
 source "Kconfig.zephyr"

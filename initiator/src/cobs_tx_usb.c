@@ -274,4 +274,51 @@ void cobs_tx_release(void)
     k_spin_unlock(&g_tx_lock, key);
 }
 
+int cobs_tx_idle(k_timeout_t timeout)
+{
+    if (!g_initialized)
+    {
+        return 0;
+    }
+
+    if (!mars_usb_is_configured())
+    {
+        /* An unenumerated device's run is dropped in cobs_tx_write(), which
+         * already gave the gate back, so nothing was buffered. */
+        return 0;
+    }
+
+    int64_t start = k_uptime_get();
+    int     err   = k_sem_take(&sem_tx_free, cobs_usb_acquire_timeout(timeout));
+
+    if (err)
+    {
+        return -EAGAIN;
+    }
+
+    /* The full-run ring is empty: every byte is in the CDC ACM class ring or
+     * already on the bus. Give the driver's ring and the IN transfer their
+     * settle window (COBS_TX_IDLE_BOUND_MS), bounded by what is left of the
+     * caller's budget. */
+    int64_t settle_ms = COBS_TX_IDLE_BOUND_MS;
+
+    if (!K_TIMEOUT_EQ(timeout, K_FOREVER))
+    {
+        int64_t left_ms = (int64_t)k_ticks_to_ms_ceil64(timeout.ticks) - (k_uptime_get() - start);
+
+        if (left_ms < settle_ms)
+        {
+            settle_ms = left_ms;
+        }
+    }
+
+    if (settle_ms > 0)
+    {
+        k_msleep((int32_t)settle_ms);
+    }
+
+    k_sem_give(&sem_tx_free);
+    return 0;
+}
+
 #endif /* CONFIG_MARS_CS_TRANSPORT_USB */

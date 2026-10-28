@@ -45,6 +45,20 @@ static uint8_t g_serialized[COBS_TX_RUN_MAX_SIZE];
 static size_t g_total_written_size = 0u;
 
 /**
+ * @brief Set by serialize_close_stream() when the disconnect path takes over.
+ *
+ * Read by serialize_run() (before and after it acquires the seam) and by
+ * serialize_send_log_message(), so no ranging or diagnostic run can be
+ * submitted behind the terminal disconnect frame.
+ */
+static atomic_t g_stream_closed;
+
+static bool serialize_stream_closed(void)
+{
+    return atomic_get(&g_stream_closed) != 0;
+}
+
+/**
  * @brief Append data to the global COBS run buffer.
  *
  * @return 0 on success, -ENOMEM if the data would overflow the buffer.
@@ -65,6 +79,14 @@ static int serialize_cb(void * p_data, size_t size)
 static void serialize_init(void)
 {
     g_total_written_size = 0u;
+}
+
+/** @brief Milliseconds left until a deadline, clamped at zero. */
+static uint32_t serialize_ms_left(int64_t deadline)
+{
+    int64_t left_ms = deadline - k_uptime_get();
+
+    return left_ms > 0 ? (uint32_t)left_ms : 0u;
 }
 
 /**
@@ -108,39 +130,68 @@ static int serialize_append_event(SubeventResultEvent_t * p_event)
 }
 
 /**
- * @brief Replace the in-flight buffer with a single log frame and transmit.
+ * @brief Acquire the seam for a run, unless the disconnect path closed it.
  *
- * Called while the run buffer is acquired (from serialize_run's failure
- * paths). The buffer may hold an unusable partial frame, so it is reset
- * before appending the marker. Returns the cobs_tx_write result: on success
- * the backend releases the path when the transfer completes; on failure
- * the caller still holds the acquisition and must release it.
+ * The stream is checked before the wait and again after it: a disconnect can
+ * close the stream while a producer is queued on the seam, and that producer
+ * must not submit a run behind the terminal frame.
+ *
+ * @return 0 with the seam acquired, -ESHUTDOWN when the stream is closed, or
+ *         the backend's acquire error.
  */
-static int serialize_send_log_message_locked(const char * p_message)
+static int serialize_acquire_stream(k_timeout_t timeout)
+{
+    if (serialize_stream_closed())
+    {
+        return -ESHUTDOWN;
+    }
+
+    int err = cobs_tx_acquire(timeout);
+    if (err)
+    {
+        return err;
+    }
+
+    if (serialize_stream_closed())
+    {
+        cobs_tx_release();
+        return -ESHUTDOWN;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Serialize one standalone log frame into the held run buffer and submit it.
+ *
+ * The caller holds the seam. The buffer may hold an unusable partial frame
+ * (the fault paths call this after a failed append), so it is reset before
+ * appending the message. Returns the cobs_tx_write result: on success the
+ * backend releases the path when the transfer completes; on failure nothing
+ * was submitted and the caller still holds the acquisition.
+ */
+static int serialize_submit_log_frame_locked(const char * p_message)
 {
     serialize_init();
-    (void)serialize_append_log_message(p_message);
+
+    int err = serialize_append_log_message(p_message);
+    if (err)
+    {
+        return err;
+    }
+
     return cobs_tx_write(g_serialized, g_total_written_size, K_FOREVER);
 }
 
 int serialize_send_log_message(const char * p_message)
 {
-    int err = cobs_tx_acquire(K_FOREVER);
+    int err = serialize_acquire_stream(K_FOREVER);
     if (err)
     {
         return err;
     }
 
-    serialize_init();
-
-    err = serialize_append_log_message(p_message);
-    if (err)
-    {
-        cobs_tx_release();
-        return err;
-    }
-
-    err = cobs_tx_write(g_serialized, g_total_written_size, K_FOREVER);
+    err = serialize_submit_log_frame_locked(p_message);
     if (err)
     {
         /* Nothing was submitted: release the path so the next run does not
@@ -149,6 +200,43 @@ int serialize_send_log_message(const char * p_message)
     }
 
     return err;
+}
+
+void serialize_close_stream(void)
+{
+    atomic_set(&g_stream_closed, 1);
+}
+
+int serialize_send_log_message_bounded(const char * p_message, k_timeout_t timeout)
+{
+    /* Reserve part of the budget for serialization and the drain: if the
+     * acquisition consumed all of it, the submitted frame would be cut by the
+     * reboot — the truncation this path exists to prevent. Spending the wait
+     * on the acquisition instead drops the frame cleanly. */
+    bool    bounded    = !K_TIMEOUT_EQ(timeout, K_FOREVER);
+    int64_t budget_ms  = bounded ? (int64_t)k_ticks_to_ms_ceil64(timeout.ticks) : 0;
+    int64_t deadline   = k_uptime_get() + budget_ms;
+    int64_t acquire_ms = budget_ms - COBS_TX_IDLE_BOUND_MS;
+    int     err;
+
+    err = cobs_tx_acquire(bounded ? K_MSEC(acquire_ms > 0 ? (uint32_t)acquire_ms : 0u) : timeout);
+    if (err)
+    {
+        return err;
+    }
+
+    err = serialize_submit_log_frame_locked(p_message);
+    if (err)
+    {
+        /* Nothing was submitted: the write contract leaves the acquisition
+         * with the caller. */
+        cobs_tx_release();
+        return err;
+    }
+
+    /* The run is in the transport. Wait for it to leave the firmware's
+     * buffers, spending only what is left of the caller's budget. */
+    return cobs_tx_idle(bounded ? K_MSEC(serialize_ms_left(deadline)) : K_FOREVER);
 }
 
 /**
@@ -169,9 +257,10 @@ void serialize_run(SubeventResultEvent_t * p_local_event, SubeventResultEvent_t 
      * completes, so this returns immediately; under jitter it blocks only for
      * the brief overshoot, in the quiet gap before the next procedure's first
      * subevent. The path is released by the backend when the transfer
-     * completes (or via cobs_tx_release() when submission failed).
+     * completes (or via cobs_tx_release() when submission failed). A closed
+     * stream (the disconnect path) returns without submitting anything.
      */
-    if (cobs_tx_acquire(K_FOREVER))
+    if (serialize_acquire_stream(K_FOREVER))
     {
         return;
     }
@@ -190,7 +279,7 @@ void serialize_run(SubeventResultEvent_t * p_local_event, SubeventResultEvent_t 
          * that would not decode on the host, so replace it with a standalone
          * log frame (e.g. the -12 overflow from a wire-format size mismatch).
          */
-        if (serialize_send_log_message_locked("Serialize error: local event") < 0)
+        if (serialize_submit_log_frame_locked("Serialize error: local event") < 0)
         {
             cobs_tx_release();
         }
@@ -201,7 +290,7 @@ void serialize_run(SubeventResultEvent_t * p_local_event, SubeventResultEvent_t 
     if (err)
     {
         LOG_ERR("Failed to serialize peer event (err %d)", err);
-        if (serialize_send_log_message_locked("Serialize error: peer event") < 0)
+        if (serialize_submit_log_frame_locked("Serialize error: peer event") < 0)
         {
             cobs_tx_release();
         }
@@ -212,7 +301,7 @@ void serialize_run(SubeventResultEvent_t * p_local_event, SubeventResultEvent_t 
     if (err)
     {
         LOG_ERR("Failed to serialize log (err %d)", err);
-        if (serialize_send_log_message_locked("Serialize error: log") < 0)
+        if (serialize_submit_log_frame_locked("Serialize error: log") < 0)
         {
             cobs_tx_release();
         }

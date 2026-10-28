@@ -116,3 +116,27 @@ void cobs_tx_release(void)
 {
     k_sem_give(&sem_tx_done);
 }
+
+int cobs_tx_idle(k_timeout_t timeout)
+{
+    if (!g_uart_async_init_done)
+    {
+        /* No run was ever submitted, so none can still be in flight. */
+        return 0;
+    }
+
+    /* Taking the gate is how this backend observes completion: the UART async
+     * callback gives it on UART_TX_DONE, which the nRF UARTE driver raises
+     * after the last byte left the DMA buffer. Give it straight back so the
+     * seam state is unchanged for any later acquisition (the disconnect path
+     * has none, but the contract stays true). */
+    int err = k_sem_take(&sem_tx_done, timeout);
+
+    if (err)
+    {
+        return -EAGAIN;
+    }
+
+    k_sem_give(&sem_tx_done);
+    return 0;
+}

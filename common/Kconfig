@@ -109,8 +109,10 @@ config MARS_CS_LIVENESS_WATCHDOG
 	  to the system workqueue. The callback (thread context, so it may
 	  block) forces a disconnect, which reboots both boards through the
 	  existing reboot-on-disconnect path and re-runs the full handshake;
-	  the initiator's callback also emits a COBS banner first. The
-	  backstop reboots the board if the workqueue never runs the callback.
+	  the initiator's callback also emits a COBS banner first, and its
+	  disconnect callback then emits the terminal COBS frame carrying the
+	  reason. The backstop reboots the board if the workqueue never runs the
+	  callback.
 
 config MARS_CS_LIVENESS_WATCHDOG_TIMEOUT_MS
 	int "CS liveness watchdog timeout in ms"

@@ -33,6 +33,7 @@ static struct k_sem * gp_sem_cs_security_enabled;
 
 static bt_le_cs_subevent_data_available_cb gp_subevent_data_cb;
 static bt_le_cs_config_created_cb          gp_config_created_cb;
+static ble_disconnected_hook_t             gp_disconnected_hook;
 
 /**
  * @brief Get the current BLE connection reference.
@@ -85,6 +86,16 @@ void ble_callbacks_set_config_created_cb(bt_le_cs_config_created_cb p_cb)
 }
 
 /**
+ * @brief Set the disconnect hook (initiator COBS emission).
+ *
+ * @param p_hook  Hook function pointer, or NULL to disable.
+ */
+void ble_callbacks_set_disconnected_hook(ble_disconnected_hook_t p_hook)
+{
+    gp_disconnected_hook = p_hook;
+}
+
+/**
  * @brief Internal forwarder for CS subevent data available notifications.
  */
 static void subevent_data_available_cb(struct bt_conn * p_conn, struct bt_conn_le_cs_subevent_result * p_result)
@@ -121,12 +132,23 @@ static void connected_cb(struct bt_conn * p_conn, uint8_t err)
 /** @brief Callback for BLE disconnection — reboots the device. */
 static void disconnected_cb(struct bt_conn * p_conn, uint8_t reason)
 {
-    LOG_INF("Disconnected (reason 0x%02X)", reason);
+    LOG_INF(BLE_CALLBACKS_DISCONNECT_REASON_FORMAT, reason);
 
     bt_conn_unref(p_conn);
     gp_connection = NULL;
 
     dk_set_led_off(CON_STATUS_LED);
+
+    /* Initiator COBS emission: one bounded, best-effort terminal log frame
+     * carrying the reason, so a host capturing only the data port can tell a
+     * watchdog-triggered disconnect (0x16) from a supervision timeout, a peer
+     * reset, or a peer power cycle. The shared callbacks have no serializer
+     * dependency; the reflector never sets the hook. Runs on the BT RX thread
+     * before LOG_PANIC(). */
+    if (gp_disconnected_hook)
+    {
+        gp_disconnected_hook(reason);
+    }
 
     /* Deferred logging: sys_reboot resets the SoC without draining the log
      * queue, so flush it explicitly. On a VCOM console this synchronously
