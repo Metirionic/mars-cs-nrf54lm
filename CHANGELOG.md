@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.9.0](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.9.0) - 2026-10-28
+#### Features
+- emit the disconnect reason on the initiator COBS stream - ([a3846e1](https://github.com/Metirionic/mars-cs-nrf54lm/commit/a3846e139b074af1935a9a8978f62ef3620e396b)) - AttilaRoemer, Claude Code
+
+- - -
+
 ## [v0.8.2](https://github.com/Metirionic/mars-cs-nrf54lm/releases/tag/v0.8.2) - 2026-10-27
 #### Bug Fixes
 - repair the CS liveness watchdog recovery - ([5a6ab7f](https://github.com/Metirionic/mars-cs-nrf54lm/commit/5a6ab7f504de1643e086861d907788c9eb93d1c2)) - AttilaRoemer, Claude Code
