@@ -245,3 +245,16 @@ bench-validated on the DK, not production-qualified.
 
 The decision body above, including its v3.4.0 references, is deliberately
 unchanged: it records what was decided under v3.4.0.
+
+## Update — terminal disconnect frame (#59, 2026-10-28)
+
+The seam gained `cobs_tx_idle()` so the initiator can emit one bounded terminal
+COBS log frame carrying the BLE disconnect reason before `sys_reboot()` (#59).
+After a successful write the disconnect path waits for the run to leave the
+backend's buffers: VCOM waits on its TX-done semaphore; USB waits for the
+full-run ring to be handed to the driver and then settles for a bounded window,
+because the CDC ACM UART API implements no TX-complete signal. The drain wait
+is part of a single bound that also covers the acquisition, so a busy seam or a
+stalled host drops the frame instead of delaying the reboot. The decision above
+is otherwise unchanged: the write path, the run framing, and the drop policy
+are the same as decided there.

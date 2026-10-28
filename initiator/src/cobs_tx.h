@@ -28,6 +28,17 @@
 #define COBS_TX_RUN_MAX_SIZE 29000u
 
 /**
+ * @brief Worst-case drain time a backend may need for a small submitted run.
+ *
+ * The bounded terminal-frame path reserves this much of its budget for the
+ * drain, so the acquisition wait cannot starve it and leave the reboot to cut
+ * a submitted frame. The USB backend also uses it as its settle window: the
+ * CDC ACM UART API exposes no TX-complete signal, so the class ring and the
+ * USB IN transfer that follow the backend's full-run ring get this much time.
+ */
+#define COBS_TX_IDLE_BOUND_MS 50
+
+/**
  * @brief Reserve the COBS transmit path for the next serialization run.
  *
  * Waits until the transport can accept a run and the run buffer may be filled
@@ -75,5 +86,27 @@ int cobs_tx_write(const uint8_t * p_data, size_t size, k_timeout_t timeout);
  * successful cobs_tx_write() — that run releases the path on completion.
  */
 void cobs_tx_release(void);
+
+/**
+ * @brief Wait, bounded, for a submitted run to leave the firmware's buffers.
+ *
+ * The terminal-frame path (the initiator's disconnect emission) calls this
+ * after a successful cobs_tx_write() and before sys_reboot(): the write path
+ * is asynchronous, so without the wait the reset can cut the frame. "Left the
+ * buffers" is backend-defined: the VCOM backend waits for the UART async
+ * TX-done signal; the USB backend waits for its full-run ring to be handed to
+ * the CDC ACM driver and then gives that driver's own ring and the USB IN
+ * transfer a bounded settle window. With nothing in flight the wait completes
+ * without blocking on a transfer; the USB backend still spends its settle
+ * window, because the driver ring and the IN transfer are part of what it
+ * drains.
+ *
+ * @param timeout  Wait limit. A backend may apply its own bound even when
+ *                 timeout is K_FOREVER (the USB backend does), so a stalled
+ *                 host cannot hold the caller past that bound.
+ * @return 0 if no submitted run is still in the backend's buffers, -EAGAIN if
+ *         one remained when the wait expired.
+ */
+int cobs_tx_idle(k_timeout_t timeout);
 
 #endif /* COBS_TX_H__ */
